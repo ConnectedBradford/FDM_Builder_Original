@@ -43,3 +43,19 @@ def clear_dataset(dataset_id):
     for table in CLIENT.list_tables(dataset_id):
         full_table_id = f"{PROJECT}.{dataset_id}.{table.table_id}"
         CLIENT.delete_table(full_table_id, not_found_ok=True)
+        
+        
+def run_sql_query(sql, destination=None):
+    
+    if destination:
+        job_config = bigquery.QueryJobConfig(
+            destination=destination, 
+            write_disposition="WRITE_TRUNCATE"
+        )
+    else:
+        job_config=None
+    
+    query_job = CLIENT.query(sql, job_config=job_config)  # Make an API request.
+    query_job.result()  # Wait for the job to complete.
+    
+    return query_job

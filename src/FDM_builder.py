@@ -1,4 +1,5 @@
 # from google.cloud import bigquery
+from dateutil.parser import parse
 from FDM_helpers import *
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
@@ -43,8 +44,8 @@ class FDMTable:
             self.person_id_added = True
             print("_" * 80 + "\n")
             print(f"\t ##### BUILD PROCESS FOR {self.table_id} COMPLETE! #####\n")
-        
-        
+    
+    
     def get_missing_person_ids(self):
         
         if not self.person_id_added:
@@ -107,7 +108,7 @@ class FDMTable:
                 FROM `{self.source_table_id}`
             """
             CLIENT.query(sql).result()
-            print(f"\t* {self.table_id} copied!\n")
+            print(f"\t* {self.table_id} copied to {self.dataset_id}!\n")
             
             
     def _clean_identifier_column_names(self):
@@ -133,6 +134,15 @@ class FDMTable:
                 print(f"\t* {col_match[0]} found - corrected to {identifier}")
             elif col_match:
                 print(f"\t* {col_match[0]} found - syntax correct")
+        
+        if not self._get_identifier_columns():
+            raise ValueError(
+                "\n\n\tNo identifier columns found! FDM process requires a digest\n\t"
+                "or EDRN column in each source table to be able to\n\t"
+                "link person_ids.\n\n\t"
+                "TIP: If digest/EDRN columns are present under a different name,\n\t"
+                "rename the column in question then run .build() again."
+            )
                 
         
     def _get_identifier_columns(self):
@@ -188,6 +198,84 @@ class FDMTable:
             print("\t* person_id column added!\n")
             
             
+    def _get_event_dates(self, date_columns):
+    
+        table = CLIENT.get_table(self.full_table_id)
+        num_rows = table.num_rows
+        col_names = [field.name for field in table.schema]
+        
+        def parse_date(date):
+            try:
+                return(parse(date))
+            except:
+                return None
+        
+        if len(date_columns) == 1:
+            
+            date_col = date_columns[0]
+            if date_col not in col_names:
+                raise ValueError(f"{date_col} not in {self.table_id}")
+                
+            sql = f"""
+                SELECT person_id, {date_col}
+                FROM {self.full_table_id}
+            """
+            date_df = pd.read_gbq(sql,
+                                  project_id=PROJECT,
+                                  progress_bar_type=None)
+            date_df["EventDate"] = date_df[date_col].apply(parse_date)
+        
+        elif len(date_columns) == 3:
+            
+            date_cols_in_table = [col for col in date_columns
+                                  if col in col_names]
+            sql = f"""
+                SELECT person_id, {", ".join(date_cols_in_table)}
+                FROM {self.full_table_id}
+            """
+            date_df = pd.read_gbq(sql,
+                                  project_id=PROJECT,
+                                  progress_bar_type=None)
+            for idx, col in enumerate(date_columns):
+                if col not in date_df.columns:
+                    date_df.insert(loc=idx+1,
+                                   column=col,
+                                   value=np.repeat(col, num_rows))
+            def join_date_cols(series):
+                return "-".join(series[1:].astype("string"))
+                
+            date_df["date_string"] = date_df.apply(join_date_cols)
+            date_df["EventDate"] = date_df["date_string"].apply(parse_date)
+        else:
+            raise ValueError("Input should be single table column or [year, month, day] list")
+        
+        return date_df[["person_id", "EventDate"]]
+    
+    
+    def _insert_event_into_table(self, date_columns, event_type):
+        
+        event_dates = self._get_event_dates(date_columns)
+        event_name = f"Event{event_type}Date"
+        event_dates.rename({"EventDate": event_name},
+                           axis=1,
+                           inplace=True)
+        
+        tmp_event_table_id = f"{PROJECT}.{self.dataset_id}.tmp_event"
+        event_dates.to_gbq(destination_table=tmp_event_table_id,
+                           project_id=PROJECT,
+                           if_exists="fail",
+                           progress_bar=None)
+        
+        sql = f"""
+            SELECT b.{event_name}, a.*
+            FROM `{self.full_table_id}` a
+            LEFT JOIN {tmp_event_table_id} b
+            ON a.person_id = b.person_id
+        """
+        run_sql_query(sql, destination=self.full_table_id)
+        CLIENT.delete_table(tmp_event_table_id)
+        
+        
 class FDMDataset:
     
     
@@ -222,13 +310,15 @@ class FDMDataset:
                 )
             elif not table.person_id_added:
                 raise ValueError(
-                    f"\tThe build process for {table.table_id} has not been completed. All inputs must be built FDM tables."
-                    f"\n\tRun the .build() method for the FDMTable relating to {table.table_id} then reinitialise FDMDataset."
+                    f"\n\n\tThe build process for {table.table_id} has not been completed.\n\t" 
+                    "All inputs must be built FDM tables. Run the .build() method for the\n\t"
+                    f"FDMTable object relating to {table.table_id} then run re-build FDMDataset."
                 )
             elif not table.dataset_id == self.dataset_id:
                 raise ValueError(
-                    f"\t{table.table_id} is not part of the FDM Dataset {self.dataset_id} - it is part of {table.dataset_id}."
-                    f"\n\tAll FDM tables must be part of the FDM Dataset"
+                    f"\t{table.table_id} is not part of the FDM Dataset {self.dataset_id} "
+                    f"- it is part of {table.dataset_id}."
+                    f"\n\The build process can only be run on tables from the same FDM Dataset."
                 )
             else:
                 print(f"\t* {table.table_id} - OK")
