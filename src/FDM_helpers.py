@@ -10,7 +10,6 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)
 # Set global variables
 PROJECT = "yhcr-prd-phm-bia-core"
 CLIENT = bigquery.Client(project=PROJECT)
-DEMOGRAPHICS = f"{PROJECT}.CY_MYSPACE_SR.demographics"
 
 
 def rename_columns_in_bigquery(table_id, names_map, verbose=True):

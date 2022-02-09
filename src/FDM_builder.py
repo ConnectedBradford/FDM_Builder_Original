@@ -13,7 +13,8 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)
 # Set global variables
 PROJECT = "yhcr-prd-phm-bia-core"
 CLIENT = bigquery.Client(project=PROJECT)
-DEMOGRAPHICS = f"{PROJECT}.CY_MYSPACE_SR.demographics"
+DEMOGRAPHICS = f"{PROJECT}.CY_PIPELINE_TESTS_MASTER.demographics"
+MASTER_PERSON = f"{PROJECT}.CY_PIPELINE_TESTS_MASTER.person"
 
     
 class FDMTable:
@@ -46,48 +47,18 @@ class FDMTable:
             print(f"\t ##### BUILD PROCESS FOR {self.table_id} COMPLETE! #####\n")
     
     
-    def get_missing_person_ids(self):
+    def get_identifier_columns(self):
         
-        if not self.person_id_added:
-            raise ValueError(
-                "Table not yet built and/or person_id added. "
-                + "Run .build() then retry"
-            )
-            
-        id_columns = self._get_identifier_columns()
+        # collect column names from schema
+        table = CLIENT.get_table(self.full_table_id)
+        col_names = [field.name for field in table.schema]
         
-        if len(id_columns) == 1:
-            return pd.DataFrame([])
-        else:
-            sql = f"""
-                SELECT DISTINCT {id_columns[1]} 
-                FROM `{self.full_table_id}`
-                WHERE person_id IS NULL
-            """
-            missing_person_ids = pd.read_gbq(sql,  
-                                             project_id=PROJECT, 
-                                             progress_bar_type=None) 
-            return missing_person_ids
-    
-    
-    def get_unique_person_ids(self):
-        
-        
-        if not self.person_id_added:
-            raise ValueError(
-                "Table not yet built and/or person_id added. Run .build() then retry"
-            )
-        sql = f"""
-            SELECT DISTINCT person_id
-            FROM `{self.full_table_id}`
-            WHERE person_id IS NOT NULL
-        """
-        unique_person_ids = pd.read_gbq(sql,   
-                                        project_id=PROJECT,  
-                                        progress_bar_type=None)
-        print(f"\t\t- {self.table_id}: {len(unique_person_ids)} person_ids found")
-        return unique_person_ids
-    
+        # find matching identifier columns and correct syntax if required
+        identifier_names = ["person_id", "digest", "EDRN"]
+        identifier_columns = [identifier for identifier in identifier_names
+                              if identifier in col_names]
+        return identifier_columns
+                                                                                                          
     
     def _copy_table_to_dataset(self):
         # check exists - if so skip
@@ -135,7 +106,7 @@ class FDMTable:
             elif col_match:
                 print(f"\t* {col_match[0]} found - syntax correct")
         
-        if not self._get_identifier_columns():
+        if not self.get_identifier_columns():
             raise ValueError(
                 "\n\n\tNo identifier columns found! FDM process requires a digest\n\t"
                 "or EDRN column in each source table to be able to\n\t"
@@ -145,31 +116,18 @@ class FDMTable:
             )
                 
         
-    def _get_identifier_columns(self):
-        
-        # collect column names from schema
-        table = CLIENT.get_table(self.full_table_id)
-        col_names = [field.name for field in table.schema]
-        
-        # find matching identifier columns and correct syntax if required
-        identifier_names = ["person_id", "digest", "EDRN"]
-        identifier_columns = [identifier for identifier in identifier_names
-                              if identifier in col_names]
-        return identifier_columns
-                                                                                                          
-    
     def _insert_person_id_into_table(self):
         
         print(f"\n3. Adding person_id column:\n")
         
-        id_columns = self._get_identifier_columns()
+        id_columns = self.get_identifier_columns()
         
         if not id_columns:
             raise ValueError("\tNo identifier column (digest/EDRN) found for adding person_ids!")
             
         if "digest" in id_columns and "EDRN" in id_columns:
             print(f"\tWARNING: both digest and EDRN "
-                  + f"found in {self.table_id}. Using digest by default. "
+                  + f"found in {self.table_id}. Using digest by default.\n\t"
                   + "This may produce unexpected behaviour!")
             
         if "person_id" in id_columns:
@@ -324,95 +282,88 @@ class FDMDataset:
                 print(f"\t* {table.table_id} - OK")
               
         
-    def _get_unique_person_ids(self):
-        
-        print(f"\t* Collecting unique person_ids from...")
-        
-        all_ids = pd.DataFrame([])
-        for table in self.tables:
-            ids = table.get_unique_person_ids()
-            all_ids = all_ids.append(ids)
-            
-        duplicate_ids_mask = all_ids.duplicated()
-        unique_person_ids = all_ids[~duplicate_ids_mask]
-        print(f"\t* {len(unique_person_ids)} person_ids collected")
-        return unique_person_ids
-        
-            
     def _build_person_table(self):
         
         print("\n2. Building person table:\n")
-        # push list of person_ids to GCP as new table
-        unique_ids = self._get_unique_person_ids()
-        print(f"\t* Creating person table from {len(unique_ids)} unique person_ids")
-        unique_ids.to_gbq(destination_table=self.person_table_id,
-                          project_id=PROJECT,
-                          if_exists="replace",
-                          progress_bar=None)
+        # generate new table with unique person ids
+        person_id_union_sql = "\nUNION ALL\n".join(
+            [f"SELECT person_id FROM `{table.full_table_id}`"
+             for table in self.tables]
+        )
+        person_ids_sql = f"""
+            WITH person_ids AS (
+                {person_id_union_sql}
+            )
+            SELECT DISTINCT person_id
+            FROM person_ids
+        """
+        run_sql_query(person_ids_sql, destination=self.person_table_id) 
         
         # join columns from master person table in query
         print(f"\t* Joining data from master person table")
-        sql = f"""
+        full_person_table_sql = f"""
             SELECT a.person_id, b.* EXCEPT(person_id)
             FROM `{self.person_table_id}` a
-            INNER JOIN `{PROJECT}.CY_FDM_MASTER.person` b
+            INNER JOIN `{MASTER_PERSON}` b
             ON a.person_id = b.person_id
         """
-        # overwrite person table with results of query
-        job_config = bigquery.QueryJobConfig(
-            destination=self.person_table_id,  
-            write_disposition="WRITE_TRUNCATE"
-        )
-        CLIENT.query(sql, job_config=job_config).result()
+        run_sql_query(full_person_table_sql, 
+                      destination=self.person_table_id)
         print("\t* Person table built!\n")
         
     
     def _build_missing_person_ids(self):
         
         print("3. Building table of individuals with no person_id\n")
-        print("\t* collecting unique individuals with missing person_ids from...")
-        all_missing_ids = pd.DataFrame([])
-        for table in self.tables:
-            missing_ids = table.get_missing_person_ids()
-            if len(missing_ids):
-                print(f"\t\t- {table.table_id}: {len(missing_ids)} "
-                      "individuals with missing person_ids found")
-            else:
-                print(f"\t\t- {table.table_id}: all individuals have a person_id")
-            all_missing_ids = all_missing_ids.append(missing_ids)
-            
-        duplicate_ids_mask = all_missing_ids.duplicated()
-        unique_missing_ids = all_missing_ids[~duplicate_ids_mask]
-        print("\t* creating individuals_missing_person_id table from "
-              f"{len(unique_missing_ids)} entries\n")
-        table_id = f"{PROJECT}.{self.dataset_id}.individuals_missing_person_id" 
-        unique_missing_ids.to_gbq(destination_table=table_id,
-                                  project_id=PROJECT,
-                                  if_exists="replace",
-                                  progress_bar=None)
+        select_queries = [
+            f"""
+                SELECT "{identifier}" AS identifier, {identifier} AS value 
+                FROM {table.full_table_id} 
+                WHERE person_id IS NULL 
+            """ 
+            for table in self.tables 
+            for identifier in table.get_identifier_columns() 
+            if identifier != "person_id"
+        ]
+        union_query = "\nUNION ALL\n".join(select_queries)
+        sql = f"""
+            WITH missing_person_ids AS (
+                {union_query}
+            )
+            SELECT *
+            FROM missing_person_ids
+            GROUP BY identifier, value
+        """
+        table_id = f"{PROJECT}.{self.dataset_id}.individuals_missing_person_id"
+        run_sql_query(sql, destination=table_id) 
+        tab = CLIENT.get_table(table_id)
+        print(f"\t* individuals_missing_person_id created with {tab.num_rows} entries")
     
             
     def _build_person_ids_missing_from_master(self):
         
-        
         print("4. Building person_ids missing from master table\n")
-        
-        sql = f"""
-            SELECT person_id
-            FROM `{self.person_table_id}` a
+        # generate new table with unique person ids
+        person_id_union_sql = "\nUNION ALL\n".join(
+            [f"SELECT person_id FROM `{table.full_table_id}`"
+             for table in self.tables]
+        )
+        missing_ids_sql = f"""
+            WITH all_person_ids AS (
+                {person_id_union_sql}
+            )
+            SELECT DISTINCT person_id
+            FROM all_person_ids
             WHERE NOT EXISTS(
                 SELECT person_id
-                FROM `{PROJECT}.CY_FDM_MASTER.person` b
-                where a.person_id = b.person_id
+                FROM `{self.person_table_id}` person_table
+                WHERE all_person_ids.person_id = person_table.person_id
             )
+            AND person_id IS NOT NULL
         """
-        table_id = f"{PROJECT}.{self.dataset_id}.person_ids_missing_from_master"
-        job_config = bigquery.QueryJobConfig(
-            destination=table_id,  
-            write_disposition="WRITE_TRUNCATE"
-        )
-        job = CLIENT.query(sql, job_config=job_config)
-        job.result()
+        table_id = f"{PROJECT}.{self.dataset_id}.person_ids_missing_from_masater"
+        run_sql_query(missing_ids_sql, destination=table_id) 
+        
         tab = CLIENT.get_table(table_id)
         print(f"\t* person_ids_missing_from_master created with {tab.num_rows} entries")
         
