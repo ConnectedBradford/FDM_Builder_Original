@@ -40,7 +40,7 @@ def rename_columns_in_bigquery(table_id, names_map, verbose=True):
     
 def clear_dataset(dataset_id):
     for table in CLIENT.list_tables(dataset_id):
-        full_table_id = f"{PROJECT}.{dataset_id}.{table.table_id}"
+        full_table_id = f"{dataset_id}.{table.table_id}"
         CLIENT.delete_table(full_table_id, not_found_ok=True)
         
         
