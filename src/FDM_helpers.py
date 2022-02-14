@@ -2,7 +2,6 @@
 from google.cloud import bigquery
 import numpy as np
 import pandas as pd
-import pandas_gbq
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=SyntaxWarning)

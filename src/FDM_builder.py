@@ -5,7 +5,6 @@ from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
 import numpy as np
 import pandas as pd
-import pandas_gbq
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=SyntaxWarning)
