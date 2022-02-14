@@ -1,4 +1,5 @@
 # from google.cloud import bigquery
+import datetime
 from dateutil.parser import parse
 from FDM_helpers import *
 from google.cloud import bigquery
@@ -12,19 +13,19 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)
 # Set global variables
 PROJECT = "yhcr-prd-phm-bia-core"
 CLIENT = bigquery.Client(project=PROJECT)
-DEMOGRAPHICS = f"{PROJECT}.CY_PIPELINE_TESTS_MASTER.demographics"
-MASTER_PERSON = f"{PROJECT}.CY_PIPELINE_TESTS_MASTER.person"
+DEMOGRAPHICS = f"{PROJECT}.CY_TESTS_MASTER.demographics"
+MASTER_PERSON = f"{PROJECT}.CY_TESTS_MASTER.person"
 
     
 class FDMTable:
     
     
-    def __init__(self, source_table_id, dataset_id):
-        self.source_table_id = source_table_id
+    def __init__(self, source_table_full_id, dataset_id):
+        self.source_table_full_id = source_table_full_id
         self.dataset_id = dataset_id
         self.person_id_added = False
         
-        table_alias = self.source_table_id.split(".")[-1]
+        table_alias = source_table_full_id.split(".")[-1]
         self.table_id = table_alias
         full_table_id = f"{PROJECT}.{self.dataset_id}.{table_alias}"
         self.full_table_id = full_table_id
@@ -46,11 +47,14 @@ class FDMTable:
             print(f"\t ##### BUILD PROCESS FOR {self.table_id} COMPLETE! #####\n")
     
     
+    def _get_column_names(self):
+        table = CLIENT.get_table(self.full_table_id)
+        return [field.name for field in table.schema]
+            
+            
     def get_identifier_columns(self):
         
-        # collect column names from schema
-        table = CLIENT.get_table(self.full_table_id)
-        col_names = [field.name for field in table.schema]
+        col_names = self._get_column_names()
         
         # find matching identifier columns and correct syntax if required
         identifier_names = ["person_id", "digest", "EDRN"]
@@ -75,7 +79,7 @@ class FDMTable:
             sql = f"""
                 CREATE TABLE `{self.full_table_id}` AS
                 SELECT * 
-                FROM `{self.source_table_id}`
+                FROM `{self.source_table_full_id}`
             """
             CLIENT.query(sql).result()
             print(f"\t* {self.table_id} copied to {self.dataset_id}!\n")
@@ -85,9 +89,7 @@ class FDMTable:
         
         print(f"2. Checking identifier name syntax:\n")
         
-        # collect column names from schema
-        table = CLIENT.get_table(self.full_table_id)
-        col_names = [field.name for field in table.schema]
+        col_names = self._get_column_names()
         
         # find matching identifier columns and correct syntax if required
         correct_identifiers = ["person_id", "digest", "EDRN"]
@@ -155,82 +157,81 @@ class FDMTable:
             print("\t* person_id column added!\n")
             
             
-    def _get_event_dates(self, date_columns):
-    
+    def _get_event_date_df(self, date_source):
+
         table = CLIENT.get_table(self.full_table_id)
-        num_rows = table.num_rows
-        col_names = [field.name for field in table.schema]
-        
-        def parse_date(date):
-            try:
-                return(parse(date))
-            except:
-                return None
-        
-        if len(date_columns) == 1:
-            
-            date_col = date_columns[0]
-            if date_col not in col_names:
-                raise ValueError(f"{date_col} not in {self.table_id}")
-                
+        col_data = {field.name: field.field_type 
+                    for field in table.schema}
+        if type(date_source) == list and len(date_source) == 3:
+            cast_cols_sql = []
+            for col in date_source:
+                if col in col_data.keys() and col_data[col] == "STRING":
+                    cast_cols_sql.append(col)
+                elif col in col_data.keys(): 
+                    cast_cols_sql.append(f"CAST({col} AS STRING)")
+                else:
+                    cast_cols_sql.append(f'"{col}"')
+            to_concat_sql = ', "-", '.join(cast_cols_sql) 
             sql = f"""
-                SELECT person_id, {date_col}
+                SELECT uuid, CONCAT({to_concat_sql}) AS date
                 FROM {self.full_table_id}
             """
-            date_df = pd.read_gbq(sql,
-                                  project_id=PROJECT,
-                                  progress_bar_type=None)
-            date_df["EventDate"] = date_df[date_col].apply(parse_date)
-        
-        elif len(date_columns) == 3:
-            
-            date_cols_in_table = [col for col in date_columns
-                                  if col in col_names]
-            sql = f"""
-                SELECT person_id, {", ".join(date_cols_in_table)}
-                FROM {self.full_table_id}
-            """
-            date_df = pd.read_gbq(sql,
-                                  project_id=PROJECT,
-                                  progress_bar_type=None)
-            for idx, col in enumerate(date_columns):
-                if col not in date_df.columns:
-                    date_df.insert(loc=idx+1,
-                                   column=col,
-                                   value=np.repeat(col, num_rows))
-            def join_date_cols(series):
-                return "-".join(series[1:].astype("string"))
-                
-            date_df["date_string"] = date_df.apply(join_date_cols)
-            date_df["EventDate"] = date_df["date_string"].apply(parse_date)
         else:
-            raise ValueError("Input should be single table column or [year, month, day] list")
+            sql = f"""
+                SELECT uuid, {date_source} AS date
+                FROM {self.full_table_id}
+            """
+
+        dates_df = pd.read_gbq(query=sql, project_id=PROJECT)
         
-        return date_df[["person_id", "EventDate"]]
-    
-    
-    def _insert_event_into_table(self, date_columns, event_type):
-        
-        event_dates = self._get_event_dates(date_columns)
-        event_name = f"Event{event_type}Date"
-        event_dates.rename({"EventDate": event_name},
-                           axis=1,
-                           inplace=True)
-        
-        tmp_event_table_id = f"{PROJECT}.{self.dataset_id}.tmp_event"
-        event_dates.to_gbq(destination_table=tmp_event_table_id,
-                           project_id=PROJECT,
-                           if_exists="fail",
-                           progress_bar=None)
-        
-        sql = f"""
-            SELECT b.{event_name}, a.*
-            FROM `{self.full_table_id}` a
-            LEFT JOIN {tmp_event_table_id} b
-            ON a.person_id = b.person_id
+        def date_is_short(date):
+            if type(date) is str and len(date) <= 8:
+                return True
+            else:
+                return False
+        if all(dates_df.date.apply(date_is_short)):
+            print("WARNING: 2 character years are ambiguous e.g. 75 will be parsed\n" 
+                  "as 1975 but 70 will be parsed as 2070. Consider converting year.")
+            
+        def parse_date(x):
+            if type(x) is datetime.datetime:
+                x = x.date
+            return parse(str(x), dayfirst=True, yearfirst=True)
+        dates_df["parsed_date"] = dates_df.date.apply(parse_date)
+        return dates_df[["uuid", "parsed_date"]]
+
+
+    def add_parsed_date_to_table(self, date_source):
+
+        if "uuid" not in self._get_column_names():
+            add_uuid_sql = f"""
+                SELECT GENERATE_UUID() AS uuid, *
+                FROM {self.full_table_id}
+            """
+            run_sql_query(add_uuid_sql, destination=self.full_table_id)
+
+        dates_df = self._get_event_date_df(date_source)
+        temp_dates_id = f"{PROJECT}.{self.dataset_id}.tmp_dates"
+        dates_df.to_gbq(destination_table=temp_dates_id,
+                        project_id=PROJECT,
+                        table_schema=[{"name":"parsed_date", "type":"DATE"}],
+                        if_exists="replace")
+
+        join_dates_sql = f"""
+            SELECT dates.parsed_date, src.*
+            FROM `{self.full_table_id}` AS src
+            LEFT JOIN {temp_dates_id} as dates
+            ON src.uuid = dates.uuid
         """
-        run_sql_query(sql, destination=self.full_table_id)
-        CLIENT.delete_table(tmp_event_table_id)
+        run_sql_query(join_dates_sql, destination=self.full_table_id)
+
+        drop_uuid_sql = f"""
+            ALTER TABLE {self.full_table_id}
+            DROP COLUMN uuid
+        """
+        run_sql_query(drop_uuid_sql)
+
+        CLIENT.delete_table(temp_dates_id)
         
         
 class FDMDataset:

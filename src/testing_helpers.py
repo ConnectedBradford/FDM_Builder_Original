@@ -66,6 +66,15 @@ def add_junk_ids(df, n=5):
             .reset_index(drop=True))
 
 
+def add_random_dates(df):
+    df["date"] = pd.Series([], dtype="datetime64[ns]")
+    df.iloc[:5,-1] = generate_random_dates(n=5, decade=1980)
+    df.iloc[5:-10,-1] = generate_random_dates(n=10, decade=2000)
+    df.iloc[-10:-5,-1] = generate_random_dates(n=5, decade=2020)
+    df.iloc[-5:,-1] = generate_random_dates(n=5, decade=2000)
+    return df
+
+
 def build_test_environment():
     
     master_dataset_id = f"{PROJECT}.CY_TESTS_MASTER"
@@ -97,45 +106,53 @@ def build_test_environment():
     src_table_1 = demographics_df.iloc[:20,:]
     src_table_1.drop(["digest", "EDRN"], axis=1, inplace=True)
     src_table_1 = add_junk_ids(src_table_1)
-    src_table_1["date"] = pd.Series([], dtype="datetime64[ns]")
-    src_table_1.iloc[:5,-1] = generate_random_dates(n=5, decade=1980)
-    src_table_1.iloc[5:15,-1] = generate_random_dates(n=10, decade=2000)
-    src_table_1.iloc[15:20,-1] = generate_random_dates(n=5, decade=2020)
-    src_table_1.iloc[20:25,-1] = generate_random_dates(n=5, decade=2000)
-    destination_table=f"{src_dataset_id}.src_table_1"
-    src_table_1.to_gbq(destination_table=destination_table, 
-                       progress_bar=None, 
-                       if_exists="replace", 
-                       table_schema=[{"name":"date", "type": "DATE"}], 
-                       project_id=PROJECT)
+    src_table_1 = add_random_dates(src_table_1)
 
     src_table_2 = demographics_df.iloc[10:30,:]
     src_table_2.drop(["person_id", "EDRN"], axis=1, inplace=True)
     src_table_2 = add_junk_ids(src_table_2)
+    src_table_2 = add_random_dates(src_table_2)
+    src_table_2["day"] = src_table_2.date.apply(lambda x: x.day)
+    src_table_2["month"] = src_table_2.date.apply(lambda x: x.month)
+    src_table_2["year"] = src_table_2.date.apply(lambda x: x.year)
+    src_table_2.drop(["date"], axis=1, inplace=True)
 
     src_table_3 = demographics_df.iloc[20:40,:]
     src_table_3.drop(["person_id", "digest"], axis=1, inplace=True)
     src_table_3 = add_junk_ids(src_table_3)
+    src_table_3 = add_random_dates(src_table_3)
+    src_table_3["month"] = src_table_3.date.apply(lambda x: str(x.month))
+    src_table_3["year"] = src_table_3.date.apply(lambda x: str(x.year))
+    src_table_3.drop(["date"], axis=1, inplace=True)
 
     src_table_4 = demographics_df.iloc[30:50,:]
     src_table_4.drop(["EDRN"], axis=1, inplace=True)
     src_table_4 = add_junk_ids(src_table_4)
+    src_table_4 = add_random_dates(src_table_4)
+    src_table_4.rename({"date":"datetime"}, axis=1, inplace=True)
 
     src_table_5 = demographics_df.iloc[40:60,:]
     src_table_5.drop(["digest"], axis=1, inplace=True)
     src_table_5 = add_junk_ids(src_table_5)
+    src_table_5 = add_random_dates(src_table_5)
+    src_table_5["year"] = src_table_5.date.apply(lambda x: str(x.year)[-2:])
+    src_table_5["month"] = src_table_5.date.apply(lambda x: x.month)
+    src_table_5["day"] = src_table_5.date.apply(lambda x: x.day)
+    src_table_5.drop(["date"], axis=1, inplace=True)
 
     src_table_6 = demographics_df.iloc[50:70,:]
     src_table_6.drop(["person_id"], axis=1, inplace=True)
     src_table_6 = add_junk_ids(src_table_6)
 
-    all_src_tables = [src_table_2, src_table_3, 
+    all_src_tables = [src_table_1, src_table_2, src_table_3, 
                       src_table_4, src_table_5, src_table_6]
 
     for idx, table in enumerate(all_src_tables):
-        destination_table=f"{src_dataset_id}.src_table_{idx+2}"
+        destination_table=f"{src_dataset_id}.src_table_{idx+1}"
         table.to_gbq(destination_table=destination_table,
-                     progress_bar=None,
+                     progress_bar=None, 
+                     table_schema=[{"name":"date", "type": "DATE"},
+                                   {"name":"datetime", "type": "DATETIME"}], 
                      if_exists="replace",
                      project_id=PROJECT)
         
