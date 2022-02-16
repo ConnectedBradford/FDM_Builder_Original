@@ -21,60 +21,102 @@ class FDMTable:
     
     
     def __init__(self, source_table_full_id, dataset_id):
+        
         self.source_table_full_id = source_table_full_id
         self.dataset_id = dataset_id
-        self.person_id_added = False
-        
         table_alias = source_table_full_id.split(".")[-1]
         self.table_id = table_alias
         full_table_id = f"{PROJECT}.{self.dataset_id}.{table_alias}"
         self.full_table_id = full_table_id
+        self.build_complete = False
+        self._build_not_completed_message = (
+            "_" * 80 + "\n\n"  
+            f"\t ##### BUILD PROCESS FOR {self.table_id} COULD NOT BE COMPLETED! #####\n"
+        )
+        
+        print(f"\t ##### Initialising FDM Table - {self.table_id} #####")
+        print("_" * 80 + "\n")
+        self._copy_table_to_dataset()
+        
         
     
-    def build(self):
+    def build(self, event_start_date_cols=None, event_start_date_format="YMD", 
+              event_end_date_cols=None, event_end_date_format="YMD"):
         
-        
-        if self.person_id_added:
+        if self.build_complete:
+            
             print(f"#### BUILD PROCESS ALREADY COMPLETED FOR {self.table_id} #####")
+            
         else:
-            print(f"\t\t ##### BUILDING TABLE {self.table_id} #####")
+            
+            print(f"\t ##### BUILDING FDM TABLE COMPONENTS FOR {self.table_id} #####")
             print("_" * 80 + "\n")
-            self._copy_table_to_dataset()
-            self._clean_identifier_column_names()
-            self._insert_person_id_into_table()
-            self.person_id_added = True
+            
+            
+            identifier_found = self._clean_identifier_column_names()
+            if not identifier_found:
+                print(self._build_not_completed_message)
+                return None
+            
+            self._add_person_id_to_table()
+            
+            event_start_found = self._add_event_start_date_to_table(event_start_date_cols,
+                                                                    event_start_date_format)
+            if not event_start_found:
+                print(self._build_not_completed_message)
+                return None
+            
+            self._add_event_end_date_to_table(event_end_date_cols,
+                                              event_end_date_format)
+            
+            self._build_complete = True
             print("_" * 80 + "\n")
             print(f"\t ##### BUILD PROCESS FOR {self.table_id} COMPLETE! #####\n")
     
     
-    def _get_column_names(self):
+    def get_column_names(self):
+        
         table = CLIENT.get_table(self.full_table_id)
         return [field.name for field in table.schema]
             
             
     def get_identifier_columns(self):
         
-        col_names = self._get_column_names()
+        col_names = self.get_column_names()
         
         # find matching identifier columns and correct syntax if required
         identifier_names = ["person_id", "digest", "EDRN"]
         identifier_columns = [identifier for identifier in identifier_names
                               if identifier in col_names]
         return identifier_columns
+    
+    
+    def rename_columns(self, names_map, verbose=True):
+        rename_columns_in_bigquery(table_id=self.full_table_id,
+                                   names_map=names_map,
+                                   verbose=verbose)
+        
+        
+    def head(self, n=10):
+        sql = f"""
+            SELECT *
+            FROM {self.full_table_id}
+            LIMIT {n}
+        """
+        return pd.read_gbq(sql)
                                                                                                           
     
     def _copy_table_to_dataset(self):
         # check exists - if so skip
         # if not copy
-        
-        print(f"1. Copying {self.table_id} to {self.dataset_id}\n")
+              end="")
         try:
             CLIENT.get_table(self.full_table_id)
             print(f"\t* {self.table_id} already exists in {self.dataset_id}.\n\n" 
-                  f"\tNOTE: Working from the existing version of {self.table_id}"
-                  f"\n\tin {self.dataset_id}. If you wish to begin from scratch with a\n\t" 
-                  f"fresh copy, drop the existing table in {self.dataset_id} and run\n\t"
-                   ".build() again.\n")
+                  f"\tNOTE: Working from the existing version of {self.table_id}\n"
+                  f"\tin {self.dataset_id}. If you wish to begin from scratch with a\n" 
+                  f"\tfresh copy, drop the existing table in {self.dataset_id} and run\n"
+                   "\t.build() again.\n")
         except NotFound:
             sql = f"""
                 CREATE TABLE `{self.full_table_id}` AS
@@ -82,14 +124,14 @@ class FDMTable:
                 FROM `{self.source_table_full_id}`
             """
             CLIENT.query(sql).result()
-            print(f"\t* {self.table_id} copied to {self.dataset_id}!\n")
+            print(f"* Table {self.table_id} copied to {self.dataset_id}!",
             
             
     def _clean_identifier_column_names(self):
         
-        print(f"2. Checking identifier name syntax:\n")
+        print(f"1. Checking for identifiers and correcting syntax:\n")
         
-        col_names = self._get_column_names()
+        col_names = self.get_column_names()
         
         # find matching identifier columns and correct syntax if required
         correct_identifiers = ["person_id", "digest", "EDRN"]
@@ -108,24 +150,24 @@ class FDMTable:
                 print(f"\t* {col_match[0]} found - syntax correct")
         
         if not self.get_identifier_columns():
-            raise ValueError(
-                "\n\n\tNo identifier columns found! FDM process requires a digest\n\t"
-                "or EDRN column in each source table to be able to\n\t"
+            print(
+                '\tNo identifier columns found! FDM process requires a "digest"\n\t'
+                'or "EDRN" column in each source table to be able to\n\t'
                 "link person_ids.\n\n\t"
                 "TIP: If digest/EDRN columns are present under a different name,\n\t"
                 "rename the column in question then run .build() again."
             )
+            return False
+        
+        return True
                 
         
-    def _insert_person_id_into_table(self):
+    def _add_person_id_to_table(self):
         
-        print(f"\n3. Adding person_id column:\n")
+        print(f"\n2. Adding person_id column:\n")
         
         id_columns = self.get_identifier_columns()
         
-        if not id_columns:
-            raise ValueError("\tNo identifier column (digest/EDRN) found for adding person_ids!")
-            
         if "digest" in id_columns and "EDRN" in id_columns:
             print(f"\tWARNING: both digest and EDRN "
                   + f"found in {self.table_id}. Using digest by default.\n\t"
@@ -157,14 +199,14 @@ class FDMTable:
             print("\t* person_id column added!\n")
             
             
-    def _get_event_date_df(self, date_source, yearfirst, dayfirst):
+    def _get_event_date_df(self, date_cols, yearfirst, dayfirst):
 
         table = CLIENT.get_table(self.full_table_id)
         col_data = {field.name: field.field_type 
                     for field in table.schema}
-        if type(date_source) == list and len(date_source) == 3:
+        if type(date_cols) == list and len(date_cols) == 3:
             cast_cols_sql = []
-            for col in date_source:
+            for col in date_cols:
                 if col in col_data.keys() and col_data[col] == "STRING":
                     cast_cols_sql.append(col)
                 elif col in col_data.keys(): 
@@ -178,7 +220,7 @@ class FDMTable:
             """
         else:
             sql = f"""
-                SELECT uuid, {date_source} AS date
+                SELECT uuid, {date_cols} AS date
                 FROM {self.full_table_id}
             """
 
@@ -201,7 +243,7 @@ class FDMTable:
         return dates_df[["uuid", "parsed_date"]]
 
 
-    def add_parsed_date_to_table(self, date_source, date_format="YMD"):
+    def _add_parsed_date_to_table(self, date_cols, date_format, date_column_name):
         
         date_format_settings = {
             "YMD": [True, False],
@@ -209,7 +251,7 @@ class FDMTable:
             "MDY": [False, False]
         }
 
-        if "uuid" not in self._get_column_names():
+        if "uuid" not in self.get_column_names():
             add_uuid_sql = f"""
                 SELECT GENERATE_UUID() AS uuid, *
                 FROM {self.full_table_id}
@@ -217,7 +259,7 @@ class FDMTable:
             run_sql_query(add_uuid_sql, destination=self.full_table_id)
 
         yearfirst, dayfirst = date_format_settings[date_format]
-        dates_df = self._get_event_date_df(date_source, 
+        dates_df = self._get_event_date_df(date_cols, 
                                            yearfirst=yearfirst,
                                            dayfirst=dayfirst)
         temp_dates_id = f"{PROJECT}.{self.dataset_id}.tmp_dates"
@@ -227,7 +269,7 @@ class FDMTable:
                         if_exists="replace")
 
         join_dates_sql = f"""
-            SELECT dates.parsed_date, src.*
+            SELECT dates.parsed_date AS {date_column_name}, src.*
             FROM `{self.full_table_id}` AS src
             LEFT JOIN {temp_dates_id} as dates
             ON src.uuid = dates.uuid
@@ -241,8 +283,76 @@ class FDMTable:
         run_sql_query(drop_uuid_sql)
 
         CLIENT.delete_table(temp_dates_id)
+    
+    
+    def _add_event_start_date_to_table(self, event_start_date_cols, event_start_date_format):
+        
+        print(f"3. Adding event_start_date:\n")
+        if "event_start_date" in self.get_column_names():
+            print(
+                  f"\t* event_start_date column already present.\n\n"
+                  f'\tNOTE: If you wish to rebuild the event start date column, drop event_start_date\n'
+                  f'\tand run .build(...) again.\n'
+            )
+            return True
+        
+        elif event_start_date_cols is None:
+            print(f"\tNo event_start_date column found and event_start_date_cols not specified.\n\n"
+                  f"\tTo complete the build process, an event start date is required. Specify the\n"
+                  f"\t`event_start_date_cols` argument of the .build() method as either:\n\n"
+                  f"\t* If one column contains the full event date:\n\n"
+                  f'\t  run .build(event_start_date_cols="insert-column-name-here")\n'
+                  f'\t  NOTE: The process assumes a default date format of year-month-day. If the\n'
+                  f'\t  date column is formatted as day-month-year set the `event_start_date_format`\n'
+                  f'\t  argument as "DMY" (i.e. .build(event_start_date_cols="column-name",\n' 
+                  f'\t  event_start_date_format="DMY")) or "MDY" if the format is month-day-year etc....\n\n'
+                  f"\t* If the year month and day are in separate columns:\n\n"
+                  f'\t  run .build(event_start_date_cols=["year-column-name", "month-column-name",\n'
+                  f'\t  "day-column-name"])\n'
+                  f"\t  NOTE: In the case that any of the year/month/day columns aren't available, you may\n" 
+                  f'\t  specify any of the year/month/day columns as constant value e.g:\n' 
+                  f'\t  .build(event_start_date_cols=["year-column-name", "Jan", "15"])\n'
+             )
+            return False
+        
+        else:
+            self._add_parsed_date_to_table(date_cols=event_start_date_cols, 
+                                           date_format=event_start_date_format,
+                                           date_column_name="event_start_date")
+            print("\t* event_start_date column added!\n")
+            return True
         
         
+    def _add_event_end_date_to_table(self, event_end_date_cols, event_end_date_format):
+        
+        print(f"4. Adding event_end_date:\n")
+        if "event_end_date" in self.get_column_names():
+            print(
+                  f"\t* event_end_date column already present.\n\n"
+                  f'\tNOTE: If you wish to rebuild the event end date column, drop event_end_date\n'
+                  f'\tand run .build(...) again.\n'
+            )
+            return True
+        
+        elif event_end_date_cols is None:
+            print(f"\tNo event_end_date column found and event_end_date_column not specified.\n"
+                  f"\tevent_end_date end date will be omitted. If you wish to add an event_end_date,\n"
+                  f"\tre-run .build() specifying the `event_end_date` argument.\n\n"
+                  f"\tNote: Table build process will complete, but the observation periods derived\n"
+                  f"\tfrom a source table with only an event start date may not be accurate, and \n"
+                  f"\tmay result in erroneous observations going unidentified. Talk to the CYP data\n"
+                  f"\tteam if at all uncertain about ommiting the event end date.\n"
+            )
+            return False
+        
+        else:
+            self._add_parsed_date_to_table(date_cols=event_end_date_cols, 
+                                           date_format=event_end_date_format,
+                                           date_column_name="event_end_date")
+            print("\t* event_end_date column added!\n")
+            return True
+        
+                  
 class FDMDataset:
     
     
@@ -275,7 +385,7 @@ class FDMDataset:
                     f"\t{table} is not an FDM table. All inputs must be built FDM tables."
                     "\n\tCheck and re-initialise FDMDataset with correct input."
                 )
-            elif not table.person_id_added:
+            elif not table.build_complete:
                 raise ValueError(
                     f"\n\n\tThe build process for {table.table_id} has not been completed.\n\t" 
                     "All inputs must be built FDM tables. Run the .build() method for the\n\t"

@@ -28,11 +28,7 @@ def rename_columns_in_bigquery(table_id, names_map, verbose=True):
         FROM `{table_id}`
     """
     
-    job_config = bigquery.QueryJobConfig(
-        destination=table_id,  
-        write_disposition="WRITE_TRUNCATE"
-    )
-    CLIENT.query(sql, job_config=job_config).result()
+    run_sql_query(sql=sql, destination=table_id)
     if verbose:
         print("Renaming Complete\n")
     

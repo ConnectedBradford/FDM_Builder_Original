@@ -34,6 +34,7 @@ def build_test_master_person_df():
     person_df.loc[person_df.person_id % 5 == 0, "death_datetime"] = (
         generate_random_dates(n=100, decade=2010)
     )
+    person_df["person_id"] = person_df.person_id.astype("string")
     return person_df
 
 
@@ -129,11 +130,13 @@ def build_test_environment():
     src_table_4.drop(["EDRN"], axis=1, inplace=True)
     src_table_4 = add_junk_ids(src_table_4)
     src_table_4 = add_random_dates(src_table_4)
-#     src_table_4["day"] = src_table_4.date.apply(lambda x: x.day)
-#     src_table_4["month"] = src_table_4.date.apply(lambda x: x.month)
-#     src_table_4["year"] = src_table_4.date.apply(lambda x: x.year)
-#     src_table_4["date"] = src_table_4.apply(lambda x: "-".join([str(x.day), str(x.month), str(x.year)]), axis=1)
-#     src_table_4.drop(["day", "month", "year"], axis=1, inplace=True)
+    src_table_4["day"] = src_table_4.date.apply(lambda x: x.day)
+    src_table_4["month"] = src_table_4.date.apply(lambda x: x.month)
+    src_table_4["year"] = src_table_4.date.apply(lambda x: x.year)
+    src_table_4["date_string"] = (src_table_4
+       .apply(lambda x: "-".join([str(x.day), str(x.month), str(x.year)]), axis=1)
+    )
+    src_table_4.drop(["day", "month", "year"], axis=1, inplace=True)
 
     src_table_5 = demographics_df.iloc[40:60,:]
     src_table_5.drop(["digest"], axis=1, inplace=True)
@@ -152,6 +155,7 @@ def build_test_environment():
                       src_table_4, src_table_5, src_table_6]
 
     for idx, table in enumerate(all_src_tables):
+        print(f"LOADING: table {idx+1}")
         destination_table=f"{src_dataset_id}.src_table_{idx+1}"
         table.to_gbq(destination_table=destination_table,
                      progress_bar=None, 
