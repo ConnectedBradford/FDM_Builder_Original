@@ -157,7 +157,7 @@ class FDMTable:
             print("\t* person_id column added!\n")
             
             
-    def _get_event_date_df(self, date_source):
+    def _get_event_date_df(self, date_source, yearfirst, dayfirst):
 
         table = CLIENT.get_table(self.full_table_id)
         col_data = {field.name: field.field_type 
@@ -196,12 +196,18 @@ class FDMTable:
         def parse_date(x):
             if type(x) is datetime.datetime:
                 x = x.date
-            return parse(str(x), dayfirst=True, yearfirst=True)
+            return parse(str(x), dayfirst=dayfirst, yearfirst=yearfirst)
         dates_df["parsed_date"] = dates_df.date.apply(parse_date)
         return dates_df[["uuid", "parsed_date"]]
 
 
-    def add_parsed_date_to_table(self, date_source):
+    def add_parsed_date_to_table(self, date_source, date_format="YMD"):
+        
+        date_format_settings = {
+            "YMD": [True, False],
+            "DMY": [False, True],
+            "MDY": [False, False]
+        }
 
         if "uuid" not in self._get_column_names():
             add_uuid_sql = f"""
@@ -210,7 +216,10 @@ class FDMTable:
             """
             run_sql_query(add_uuid_sql, destination=self.full_table_id)
 
-        dates_df = self._get_event_date_df(date_source)
+        yearfirst, dayfirst = date_format_settings[date_format]
+        dates_df = self._get_event_date_df(date_source, 
+                                           yearfirst=yearfirst,
+                                           dayfirst=dayfirst)
         temp_dates_id = f"{PROJECT}.{self.dataset_id}.tmp_dates"
         dates_df.to_gbq(destination_table=temp_dates_id,
                         project_id=PROJECT,

@@ -129,7 +129,11 @@ def build_test_environment():
     src_table_4.drop(["EDRN"], axis=1, inplace=True)
     src_table_4 = add_junk_ids(src_table_4)
     src_table_4 = add_random_dates(src_table_4)
-    src_table_4.rename({"date":"datetime"}, axis=1, inplace=True)
+#     src_table_4["day"] = src_table_4.date.apply(lambda x: x.day)
+#     src_table_4["month"] = src_table_4.date.apply(lambda x: x.month)
+#     src_table_4["year"] = src_table_4.date.apply(lambda x: x.year)
+#     src_table_4["date"] = src_table_4.apply(lambda x: "-".join([str(x.day), str(x.month), str(x.year)]), axis=1)
+#     src_table_4.drop(["day", "month", "year"], axis=1, inplace=True)
 
     src_table_5 = demographics_df.iloc[40:60,:]
     src_table_5.drop(["digest"], axis=1, inplace=True)
