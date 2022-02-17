@@ -109,7 +109,6 @@ class FDMTable:
     def _copy_table_to_dataset(self):
         # check exists - if so skip
         # if not copy
-              end="")
         try:
             CLIENT.get_table(self.full_table_id)
             print(f"\t* {self.table_id} already exists in {self.dataset_id}.\n\n" 
@@ -124,7 +123,7 @@ class FDMTable:
                 FROM `{self.source_table_full_id}`
             """
             CLIENT.query(sql).result()
-            print(f"* Table {self.table_id} copied to {self.dataset_id}!",
+            print(f"* Table {self.table_id} copied to {self.dataset_id}!")
             
             
     def _clean_identifier_column_names(self):
