@@ -122,8 +122,23 @@ class FDMTable:
                 SELECT * 
                 FROM `{self.source_table_full_id}`
             """
-            CLIENT.query(sql).result()
-            print(f"* Table {self.table_id} copied to {self.dataset_id}!")
+            try:
+                CLIENT.query(sql).result()
+                print(f"* Table {self.table_id} copied to {self.dataset_id}!")
+            except Exception as ex:
+                print(f"Looks like something went wrong! Likely culprits are:\n\n"
+                      f"\t1. You misspelled either the source table location or dataset id:\n\n" 
+                      f"\tSource table location - {self.source_table_full_id}\n" 
+                      f"\tDataset id - {self.dataset_id}\n\n" 
+                      f"\t\tIf so, just correct the spelling error and then re-initialise.\n\n"
+                      f"\t2. You've yet to initialise the dataset {self.dataset_id}\n\n"
+                      f"\tIf so, intialise an FDMDataset object and then re-initialise this\n"
+                      f"\ttable afterwards.\n"
+                      f"\nNote: DO NOT CONTINUE TO USE THIS PARTICULAR FDMTable INSTANCE! If you "
+                      f"do, you're\ngoing to see a whole bunch more error messages!"
+                      f"\n\nFull error message is as follows:"
+                )
+                raise ex
             
             
     def _clean_identifier_column_names(self):
