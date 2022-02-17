@@ -28,7 +28,6 @@ class FDMTable:
         self.table_id = table_alias
         full_table_id = f"{PROJECT}.{self.dataset_id}.{table_alias}"
         self.full_table_id = full_table_id
-        self.build_complete = False
         self._build_not_completed_message = (
             "_" * 80 + "\n\n"  
             f"\t ##### BUILD PROCESS FOR {self.table_id} COULD NOT BE COMPLETED! #####\n"
@@ -43,35 +42,27 @@ class FDMTable:
     def build(self, event_start_date_cols=None, event_start_date_format="YMD", 
               event_end_date_cols=None, event_end_date_format="YMD"):
         
-        if self.build_complete:
-            
-            print(f"#### BUILD PROCESS ALREADY COMPLETED FOR {self.table_id} #####")
-            
-        else:
-            
-            print(f"\t ##### BUILDING FDM TABLE COMPONENTS FOR {self.table_id} #####")
-            print("_" * 80 + "\n")
-            
-            
-            identifier_found = self._clean_identifier_column_names()
-            if not identifier_found:
-                print(self._build_not_completed_message)
-                return None
-            
-            self._add_person_id_to_table()
-            
-            event_start_found = self._add_event_start_date_to_table(event_start_date_cols,
-                                                                    event_start_date_format)
-            if not event_start_found:
-                print(self._build_not_completed_message)
-                return None
-            
-            self._add_event_end_date_to_table(event_end_date_cols,
-                                              event_end_date_format)
-            
-            self._build_complete = True
-            print("_" * 80 + "\n")
-            print(f"\t ##### BUILD PROCESS FOR {self.table_id} COMPLETE! #####\n")
+        print(f"\t ##### BUILDING FDM TABLE COMPONENTS FOR {self.table_id} #####")
+        print("_" * 80 + "\n")
+
+        identifier_found = self._clean_identifier_column_names()
+        if not identifier_found:
+            print(self._build_not_completed_message)
+            return None
+
+        self._add_person_id_to_table()
+
+        event_start_found = self._add_event_start_date_to_table(event_start_date_cols,
+                                                                event_start_date_format)
+        if not event_start_found:
+            print(self._build_not_completed_message)
+            return None
+
+        self._add_event_end_date_to_table(event_end_date_cols,
+                                          event_end_date_format)
+
+        print("_" * 80 + "\n")
+        print(f"\t ##### BUILD PROCESS FOR {self.table_id} COMPLETE! #####\n")
     
     
     def get_column_names(self):
@@ -128,12 +119,14 @@ class FDMTable:
             except Exception as ex:
                 print(f"Looks like something went wrong! Likely culprits are:\n\n"
                       f"\t1. You misspelled either the source table location or dataset id:\n\n" 
-                      f"\tSource table location - {self.source_table_full_id}\n" 
-                      f"\tDataset id - {self.dataset_id}\n\n" 
-                      f"\t\tIf so, just correct the spelling error and then re-initialise.\n\n"
-                      f"\t2. You've yet to initialise the dataset {self.dataset_id}\n\n"
-                      f"\tIf so, intialise an FDMDataset object and then re-initialise this\n"
-                      f"\ttable afterwards.\n"
+                      f'\tSource table location - "{self.source_table_full_id}"\n' 
+                      f'\tDataset id - "{self.dataset_id}"\n\n' 
+                      f"\tIf so, just correct the spelling error and then re-initialise.\n\n"
+                      f"\t2. The dataset {self.dataset_id} doesn't exist yet\n\n"
+                      f"\tIf so, and you have the relevant permissions, you can create a new dataset\n"
+                      f"\tusing an FDMDataset object and .create_dataset() (or just use GCP!)\n\n" 
+                      f"\tOtherwise, if you don't have the necessary permissions, have a \tword with\n" 
+                      f"\tthe CYP data team and have them create you a dataset.\n"
                       f"\nNote: DO NOT CONTINUE TO USE THIS PARTICULAR FDMTable INSTANCE! If you "
                       f"do, you're\ngoing to see a whole bunch more error messages!"
                       f"\n\nFull error message is as follows:"
@@ -373,6 +366,13 @@ class FDMDataset:
     def __init__(self, dataset_id, fdm_tables):
         self.dataset_id = dataset_id
         self.person_table_id = f"{PROJECT}.{dataset_id}.person"
+        self.observation_period_table_id = f"{PROJECT}.{dataset_id}.observation_period"
+        dataset_exists = self._check_dataset_exists()
+        if not dataset_exists:
+            print(f"Dataset {self.dataset_id} doesn't yet exist!\n\n"
+                  "Double-check that you've got the correct spelling. If you wish to\n"
+                  "create a new dataset with that name (and you have the relevant permissions)\n"
+                  "run .create_dataset()")
         self.tables = fdm_tables
     
     
@@ -388,6 +388,25 @@ class FDMDataset:
         print(f"\t ##### BUILD PROCESS FOR {self.dataset_id} COMPLETE! #####\n")
         
     
+    def create_dataset(self):
+        try:
+            CLIENT.get_dataset(self.dataset_id)
+            print(f"Dataset {self.dataset_id} already exists!")
+        except:
+            dataset = bigquery.Dataset(f"{PROJECT}.{self.dataset_id}")
+            dataset.location = "europe-west2"
+            CLIENT.create_dataset(dataset, timeout=30)
+            print(f"Dataset {self.dataset_id} created")
+        
+    
+    def _check_dataset_exists(self):
+        try:
+            CLIENT.get_dataset(self.dataset_id)
+            return True
+        except:
+            return False
+        
+    
     def _check_fdm_tables(self):
               
         print("1. Checking source input tables:\n")
@@ -399,17 +418,17 @@ class FDMDataset:
                     f"\t{table} is not an FDM table. All inputs must be built FDM tables."
                     "\n\tCheck and re-initialise FDMDataset with correct input."
                 )
-            elif not table.build_complete:
+            elif not "person_id" in  table.get_column_names():
                 raise ValueError(
-                    f"\n\n\tThe build process for {table.table_id} has not been completed.\n\t" 
-                    "All inputs must be built FDM tables. Run the .build() method for the\n\t"
-                    f"FDMTable object relating to {table.table_id} then run re-build FDMDataset."
+                    "aint no person_id"
+                )
+            elif not "event_start_date" in  table.get_column_names():
+                raise ValueError(
+                    "aint no event_start_date"
                 )
             elif not table.dataset_id == self.dataset_id:
                 raise ValueError(
-                    f"\t{table.table_id} is not part of the FDM Dataset {self.dataset_id} "
-                    f"- it is part of {table.dataset_id}."
-                    f"\n\The build process can only be run on tables from the same FDM Dataset."
+                    f"wrong dataset for {table.table_id} - {table.dataset_id}"
                 )
             else:
                 print(f"\t* {table.table_id} - OK")
@@ -470,7 +489,7 @@ class FDMDataset:
         table_id = f"{PROJECT}.{self.dataset_id}.individuals_missing_person_id"
         run_sql_query(sql, destination=table_id) 
         tab = CLIENT.get_table(table_id)
-        print(f"\t* individuals_missing_person_id created with {tab.num_rows} entries")
+        print(f"\t* individuals_missing_person_id created with {tab.num_rows} entries\n")
     
             
     def _build_person_ids_missing_from_master(self):
