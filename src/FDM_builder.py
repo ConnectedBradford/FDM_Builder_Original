@@ -540,17 +540,24 @@ class FDMDataset:
         
     def _build_observation_period_table(self):
         
-        src_table_dates_union_sql = "\nUNION ALL\n".join(
-            [f"""SELECT person_id, event_start_date, event_end_date  
-                 FROM `{table.full_table_id}` 
-                 WHERE person_id IS NOT NULL
-             """
-             for table in self.tables]
-        )
+        full_union_sql_list = []
+        for table in self.tables:
+            no_end_date = "event_end_date" not in table.get_column_names()
+            union_sql = f"""
+                SELECT person_id, event_start_date, 
+                    {"event_start_date AS event_end_date"
+                     if no_end_date else "event_end_date"}
+                FROM `{table.full_table_id}`  
+                WHERE person_id IS NOT NULL
+            """
+            full_union_sql_list.append(union_sql)
+                
+        full_union_sql = "\nUNION ALL\n".join(full_union_sql_list)
+            
         observation_period_sql = f"""
             WITH possible_dates AS (
                 WITH all_src_dates AS (
-                    {src_table_dates_union_sql}
+                    {full_union_sql}
                 )
                 SELECT person_id, 
                     MIN(event_start_date) AS possible_start_date,
@@ -583,9 +590,11 @@ class FDMDataset:
         
         print("6. Removing entries outside observation period\n")
         for table in self.tables:
-            
+            no_end_date = "event_end_date" not in table.get_column_names()
             table_plus_obs_sql = f"""
                 SELECT a.*, 
+                    {"a.event_start_date AS event_end_date,"
+                     if no_end_date else ""}
                     b.observation_period_start_date, 
                     b.observation_period_end_date
                 FROM `{table.full_table_id}` AS a
@@ -602,7 +611,9 @@ class FDMDataset:
                     {table_plus_obs_sql}
                 )
                 SELECT * EXCEPT(observation_period_start_date, 
-                                observation_period_end_date)
+                                observation_period_end_date
+                                {", event_end_date)" if no_end_date
+                                 else ")"}
                 FROM table_plus_obs
                 WHERE {error_entries_conditions}
             """
@@ -612,7 +623,10 @@ class FDMDataset:
                 WITH table_plus_obs AS (
                     {table_plus_obs_sql}
                 )
-                SELECT * EXCEPT(observation_period_start_date, observation_period_end_date)
+                SELECT * EXCEPT(observation_period_start_date,
+                                observation_period_end_date
+                                {", event_end_date)" if no_end_date
+                                 else ")"}
                 FROM table_plus_obs
                 WHERE NOT({error_entries_conditions})
             """
