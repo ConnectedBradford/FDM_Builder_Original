@@ -82,6 +82,22 @@ class FDMTable:
         return identifier_columns
     
     
+    def add_column(self, column_sql):
+        sql = f"""
+            SELECT *, {column_sql}
+            FROM {self.full_table_id}
+        """
+        run_sql_query(sql, destination=self.full_table_id)
+    
+    
+    def drop_column(self, column):
+        sql = f"""
+            ALTER TABLE {self.full_table_id}
+            DROP COLUMN {column}
+        """
+        run_sql_query(sql)
+    
+    
     def rename_columns(self, names_map, verbose=True):
         rename_columns_in_bigquery(table_id=self.full_table_id,
                                    names_map=names_map,
@@ -114,7 +130,7 @@ class FDMTable:
                 FROM `{self.source_table_full_id}`
             """
             try:
-                CLIENT.query(sql).result()
+                run_sql_query(sql)
                 print(f"* Table {self.table_id} copied to {self.dataset_id}!")
             except Exception as ex:
                 print(f"Looks like something went wrong! Likely culprits are:\n\n"
@@ -197,12 +213,7 @@ class FDMTable:
                 LEFT JOIN `{DEMOGRAPHICS}` b
                 ON a.{id_columns[0]} = b.{id_columns[0]}
             """
-            job_config = bigquery.QueryJobConfig(
-                destination=self.full_table_id,  
-                write_disposition="WRITE_TRUNCATE"
-            )
-            query = CLIENT.query(sql, job_config=job_config)
-            query.result()
+            run_sql_query(sql, destination=self.full_table_id)
             print("\t* person_id column added!\n")
             
             
@@ -388,9 +399,9 @@ class FDMDataset:
         print("5. Building initial observation_period table\n")
         self._build_observation_period_table()
         self._remove_entries_outside_observation_period()
-        print("\n2. Rebuilding person table:\n")
+        print("\n7. Rebuilding person table:\n")
         self._build_person_table()
-        print("5. Rebuilding observation_period table\n")
+        print("8. Rebuilding observation_period table\n")
         self._build_observation_period_table()
         print("_" * 80 + "\n")
         print(f"\t ##### BUILD PROCESS FOR {self.dataset_id} COMPLETE! #####\n")
@@ -524,7 +535,7 @@ class FDMDataset:
         run_sql_query(missing_ids_sql, destination=table_id) 
         
         tab = CLIENT.get_table(table_id)
-        print(f"\t* person_ids_missing_from_master created with {tab.num_rows} entries")
+        print(f"\t* person_ids_missing_from_master created with {tab.num_rows} entries\n")
         
         
     def _build_observation_period_table(self):
@@ -565,7 +576,7 @@ class FDMDataset:
         run_sql_query(observation_period_sql,
                       destination=self.observation_period_table_id)
         
-        print(f"\t* observation_period table built")
+        print(f"\t* observation_period table built\n")
         
         
     def _remove_entries_outside_observation_period(self):

@@ -20,9 +20,6 @@ def generate_random_dates(n=1, decade=1990):
     return pd.Series([datetime.date(year=year, month=month, day=day) 
                      for year, month, day in dates],
                      dtype="datetime64[ns]")
-#     return pd.Series([f"{year}-{month}-{day}" 
-#                       for year, month, day in dates],
-#                      dtype="string")
 
 
 def build_test_master_person_df():
@@ -78,9 +75,12 @@ def add_random_dates(df):
 
 def build_test_environment():
     
+    # set id variables
     master_dataset_id = f"{PROJECT}.CY_TESTS_MASTER"
     src_dataset_id = f"{PROJECT}.CY_TESTS_SRC"
     fdm_dataset_id = f"{PROJECT}.CY_TESTS_FDM"
+    
+    # check test datasets exist and create if required
     for dataset_id in [master_dataset_id, src_dataset_id, fdm_dataset_id]:
         try:
             CLIENT.get_dataset(dataset_id)
@@ -90,6 +90,7 @@ def build_test_environment():
             dataset.location = "europe-west2"
             CLIENT.create_dataset(dataset, timeout=30)
     
+    # build test master and demographics tables
     master_person_df = build_test_master_person_df()
     master_person_table_id = f"{master_dataset_id}.person"
     master_person_df.to_gbq(destination_table=master_person_table_id,
@@ -97,13 +98,13 @@ def build_test_environment():
                             table_schema=[{"name":"birth_datetime", "type": "DATETIME"},
                                           {"name":"death_datetime", "type": "DATETIME"}],
                             progress_bar=None)
-    
     demographics_df = build_test_demographics_df()
     demographics_table_id = f"{master_dataset_id}.demographics"
     demographics_df.to_gbq(destination_table=demographics_table_id,
                             project_id=PROJECT,
                             progress_bar=None)
     
+    # build source tables
     src_table_1 = demographics_df.iloc[:20,:]
     src_table_1.drop(["digest", "EDRN"], axis=1, inplace=True)
     src_table_1 = add_junk_ids(src_table_1)
@@ -130,21 +131,18 @@ def build_test_environment():
     src_table_4.drop(["EDRN"], axis=1, inplace=True)
     src_table_4 = add_junk_ids(src_table_4)
     src_table_4 = add_random_dates(src_table_4)
-    src_table_4["day"] = src_table_4.date.apply(lambda x: x.day)
-    src_table_4["month"] = src_table_4.date.apply(lambda x: x.month)
-    src_table_4["year"] = src_table_4.date.apply(lambda x: x.year)
-    src_table_4["date_string"] = (src_table_4
-       .apply(lambda x: "-".join([str(x.day), str(x.month), str(x.year)]), axis=1)
+    src_table_4["date_string"] = src_table_4.date.apply(
+       lambda x: "-".join([str(x.day), str(x.month), str(x.year)])
     )
-    src_table_4.drop(["day", "month", "year"], axis=1, inplace=True)
+    src_table_4.drop(["date"], axis=1, inplace=True)
 
     src_table_5 = demographics_df.iloc[40:60,:]
     src_table_5.drop(["digest"], axis=1, inplace=True)
     src_table_5 = add_junk_ids(src_table_5)
     src_table_5 = add_random_dates(src_table_5)
-    src_table_5["year"] = src_table_5.date.apply(lambda x: str(x.year)[-2:])
-    src_table_5["month"] = src_table_5.date.apply(lambda x: x.month)
-    src_table_5["day"] = src_table_5.date.apply(lambda x: x.day)
+    src_table_5["date_string"] = src_table_5.date.apply(
+       lambda x: "-".join([str(x.month_name()), str(x.year)])
+    )
     src_table_5.drop(["date"], axis=1, inplace=True)
 
     src_table_6 = demographics_df.iloc[50:70,:]
