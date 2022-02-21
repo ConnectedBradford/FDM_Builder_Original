@@ -94,8 +94,8 @@ def build_test_environment():
     master_person_table_id = f"{master_dataset_id}.person"
     master_person_df.to_gbq(destination_table=master_person_table_id,
                             project_id=PROJECT,
-                            table_schema=[{"name":"birth_datetime", "type": "DATE"},
-                                          {"name":"death_datetime", "type": "DATE"}],
+                            table_schema=[{"name":"birth_datetime", "type": "DATETIME"},
+                                          {"name":"death_datetime", "type": "DATETIME"}],
                             progress_bar=None)
     
     demographics_df = build_test_demographics_df()
@@ -159,7 +159,7 @@ def build_test_environment():
         destination_table=f"{src_dataset_id}.src_table_{idx+1}"
         table.to_gbq(destination_table=destination_table,
                      progress_bar=None, 
-                     table_schema=[{"name":"date", "type": "DATE"},
+                     table_schema=[{"name":"date", "type": "DATETIME"},
                                    {"name":"datetime", "type": "DATETIME"}], 
                      if_exists="replace",
                      project_id=PROJECT)

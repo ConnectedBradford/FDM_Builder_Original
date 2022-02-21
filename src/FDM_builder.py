@@ -91,7 +91,7 @@ class FDMTable:
     def head(self, n=10):
         sql = f"""
             SELECT *
-            FROM {self.full_table_id}
+            FROM `{self.full_table_id}`
             LIMIT {n}
         """
         return pd.read_gbq(sql)
@@ -223,12 +223,12 @@ class FDMTable:
             to_concat_sql = ', "-", '.join(cast_cols_sql) 
             sql = f"""
                 SELECT uuid, CONCAT({to_concat_sql}) AS date
-                FROM {self.full_table_id}
+                FROM `{self.full_table_id}`
             """
         else:
             sql = f"""
                 SELECT uuid, {date_cols} AS date
-                FROM {self.full_table_id}
+                FROM `{self.full_table_id}`
             """
 
         dates_df = pd.read_gbq(query=sql, project_id=PROJECT)
@@ -261,7 +261,7 @@ class FDMTable:
         if "uuid" not in self.get_column_names():
             add_uuid_sql = f"""
                 SELECT GENERATE_UUID() AS uuid, *
-                FROM {self.full_table_id}
+                FROM `{self.full_table_id}`
             """
             run_sql_query(add_uuid_sql, destination=self.full_table_id)
 
@@ -272,13 +272,13 @@ class FDMTable:
         temp_dates_id = f"{PROJECT}.{self.dataset_id}.tmp_dates"
         dates_df.to_gbq(destination_table=temp_dates_id,
                         project_id=PROJECT,
-                        table_schema=[{"name":"parsed_date", "type":"DATE"}],
+                        table_schema=[{"name":"parsed_date", "type":"DATETIME"}],
                         if_exists="replace")
 
         join_dates_sql = f"""
             SELECT dates.parsed_date AS {date_column_name}, src.*
             FROM `{self.full_table_id}` AS src
-            LEFT JOIN {temp_dates_id} as dates
+            LEFT JOIN `{temp_dates_id}` as dates
             ON src.uuid = dates.uuid
         """
         run_sql_query(join_dates_sql, destination=self.full_table_id)
@@ -381,9 +381,17 @@ class FDMDataset:
         print(f"\t\t ##### BUILDING FDM DATASET {self.dataset_id} #####")
         print("_" * 80 + "\n")
         self._check_fdm_tables()
+        print("\n2. Building person table:\n")
         self._build_person_table()
         self._build_missing_person_ids()
         self._build_person_ids_missing_from_master()
+        print("5. Building initial observation_period table\n")
+        self._build_observation_period_table()
+        self._remove_entries_outside_observation_period()
+        print("\n2. Rebuilding person table:\n")
+        self._build_person_table()
+        print("5. Rebuilding observation_period table\n")
+        self._build_observation_period_table()
         print("_" * 80 + "\n")
         print(f"\t ##### BUILD PROCESS FOR {self.dataset_id} COMPLETE! #####\n")
         
@@ -436,7 +444,6 @@ class FDMDataset:
         
     def _build_person_table(self):
         
-        print("\n2. Building person table:\n")
         # generate new table with unique person ids
         person_id_union_sql = "\nUNION ALL\n".join(
             [f"SELECT person_id FROM `{table.full_table_id}`"
@@ -470,7 +477,7 @@ class FDMDataset:
         select_queries = [
             f"""
                 SELECT "{identifier}" AS identifier, {identifier} AS value 
-                FROM {table.full_table_id} 
+                FROM `{table.full_table_id}` 
                 WHERE person_id IS NULL 
             """ 
             for table in self.tables 
@@ -518,4 +525,87 @@ class FDMDataset:
         
         tab = CLIENT.get_table(table_id)
         print(f"\t* person_ids_missing_from_master created with {tab.num_rows} entries")
+        
+        
+    def _build_observation_period_table(self):
+        
+        src_table_dates_union_sql = "\nUNION ALL\n".join(
+            [f"""SELECT person_id, event_start_date, event_end_date  
+                 FROM `{table.full_table_id}` 
+                 WHERE person_id IS NOT NULL
+             """
+             for table in self.tables]
+        )
+        observation_period_sql = f"""
+            WITH possible_dates AS (
+                WITH all_src_dates AS (
+                    {src_table_dates_union_sql}
+                )
+                SELECT person_id, 
+                    MIN(event_start_date) AS possible_start_date,
+                    MAX(event_end_date) AS possible_end_date 
+                FROM all_src_dates
+                GROUP BY person_id
+            
+                UNION ALL
+            
+                SELECT person_id,
+                    birth_datetime AS possible_start_date, 
+                    DATETIME_ADD(IFNULL(death_datetime, 
+                                        DATETIME "9999-01-01 00:00:00"), 
+                                 INTERVAL 42 DAY) as possible_end_date 
+                FROM `{self.person_table_id}`
+            )
+            SELECT person_id, 
+            MAX(possible_start_date) AS observation_period_start_date,
+            MIN(possible_end_date) AS observation_period_end_date
+            FROM possible_dates
+            GROUP BY person_id 
+        """
+        run_sql_query(observation_period_sql,
+                      destination=self.observation_period_table_id)
+        
+        print(f"\t* observation_period table built")
+        
+        
+    def _remove_entries_outside_observation_period(self):
+        
+        print("6. Removing entries outside observation period\n")
+        for table in self.tables:
+            
+            table_plus_obs_sql = f"""
+                SELECT a.*, 
+                    b.observation_period_start_date, 
+                    b.observation_period_end_date
+                FROM `{table.full_table_id}` AS a
+                INNER JOIN `{self.observation_period_table_id}` AS b
+                ON a.person_id = b.person_id
+            """
+            error_entries_conditions = f"""
+                event_start_date < observation_period_start_date 
+                OR event_start_date > observation_period_end_date 
+                OR event_end_date > observation_period_end_date
+            """
+            error_entries_sql = f"""
+                WITH table_plus_obs AS (
+                    {table_plus_obs_sql}
+                )
+                SELECT * EXCEPT(observation_period_start_date, 
+                                observation_period_end_date)
+                FROM table_plus_obs
+                WHERE {error_entries_conditions}
+            """
+            error_table_id = f"{PROJECT}.{self.dataset_id}.{table.table_id}_outside_obs"
+            run_sql_query(error_entries_sql, destination=error_table_id)
+            non_error_entries_sql = f"""
+                WITH table_plus_obs AS (
+                    {table_plus_obs_sql}
+                )
+                SELECT * EXCEPT(observation_period_start_date, observation_period_end_date)
+                FROM table_plus_obs
+                WHERE NOT({error_entries_conditions})
+            """
+            run_sql_query(non_error_entries_sql, destination=table.full_table_id)
+            print(f"\t* entries outside observation period removed from {table.table_id}")
+            print(f"\t  and stored in {table.table_id}_outside_obs")
         
