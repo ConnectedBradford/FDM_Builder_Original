@@ -136,7 +136,6 @@ class FDMDataset:
                 FROM missing_person_ids
                 GROUP BY identifier, value
             """
-            print(sql)
             table_id = f"{PROJECT}.{self.dataset_id}.individuals_missing_person_id"
             run_sql_query(sql, destination=table_id) 
             tab = CLIENT.get_table(table_id)

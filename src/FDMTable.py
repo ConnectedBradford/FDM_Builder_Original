@@ -194,7 +194,7 @@ class FDMTable:
         if "digest" in id_columns and "EDRN" in id_columns:
             print(f"\tWARNING: both digest and EDRN "
                   + f"found in {self.table_id}. Using digest by default.\n\t"
-                  + "This may produce unexpected behaviour!")
+                  + "This may produce unexpected behaviour!\n")
             
         if "person_id" in id_columns:
             print(f"\t* {self.table_id} already contains person_id column\n")
@@ -247,16 +247,21 @@ class FDMTable:
         def date_is_short(date):
             if type(date) is str and len(date) <= 8:
                 return True
+            elif not date:
+                return True
             else:
                 return False
         if all(dates_df.date.apply(date_is_short)):
-            print("WARNING: 2 character years are ambiguous e.g. 75 will be parsed\n" 
-                  "as 1975 but 70 will be parsed as 2070. Consider converting year.")
+            print("\tWARNING: 2 character years are ambiguous e.g. 75 will be parsed\n" 
+                  "as 1975 but 70 will be parsed as 2070. Consider converting year.\n")
             
         def parse_date(x):
             if type(x) is datetime.datetime:
                 x = x.date
-            return parse(str(x), dayfirst=dayfirst, yearfirst=yearfirst)
+            try:
+                return parse(str(x), dayfirst=dayfirst, yearfirst=yearfirst)
+            except:
+                return None
         dates_df["parsed_date"] = dates_df.date.apply(parse_date)
         return dates_df[["uuid", "parsed_date"]]
 
