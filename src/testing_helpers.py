@@ -10,13 +10,9 @@ PROJECT = "yhcr-prd-phm-bia-core"
 CLIENT = bigquery.Client(project=PROJECT)
 
 
-def generate_random_dates(n=1, decade=None):
-    if decade is None:
-        year_start, year_end = 1950, 2020
-    else:
-        year_start, year_end = decade, decade + 10
+def generate_random_dates(n=1, from_year=1950, to_year=2022):
     dates = np.concatenate(
-        (np.random.choice(range(year_start, year_end), (n,1)), 
+        (np.random.choice(range(from_year, to_year), (n,1)), 
          np.random.choice(range(1,13), (n,1)), 
          np.random.choice(range(1,29), (n,1))), 
         axis=1
@@ -29,11 +25,11 @@ def generate_random_dates(n=1, decade=None):
 def build_test_master_person_df():
     person_df = pd.DataFrame(dict(
         person_id = list(range(100)),
-        birth_datetime = generate_random_dates(decade=1990, n=100),
+        birth_datetime = generate_random_dates(n=100),
         death_datetime = pd.Series([], dtype="datetime64[ns]")
     ))
     person_df.loc[person_df.person_id % 4 == 0, "death_datetime"] = (
-        generate_random_dates(n=100, decade=2010)
+        person_df.birth_datetime.apply(add_random_days)
     )
     person_df["person_id"] = person_df.person_id.astype("string")
     return person_df
@@ -66,6 +62,11 @@ def add_junk_ids(df, n=5):
     junk_df = pd.DataFrame(data=data, columns=df.columns)
     return (df.append(junk_df)
             .reset_index(drop=True))
+
+
+def add_random_days(date, upper=3652):
+    n_rand_days = int(np.random.choice(range(upper)))
+    return date + pd.offsets.DateOffset(days=n_rand_days)
 
 
 def build_test_environment():
@@ -104,14 +105,13 @@ def build_test_environment():
     src_table_1.drop(["digest", "EDRN"], axis=1, inplace=True)
     src_table_1 = add_junk_ids(src_table_1)
     src_table_1["start_date"] = generate_random_dates(n=25)
-    add_years = pd.offsets.DateOffset(years=30)
-    src_table_1["end_date"] = src_table_1.start_date + add_years
+    src_table_1["end_date"] = src_table_1.start_date.apply(add_random_days)
 
     src_table_2 = demographics_df.iloc[10:30,:]
     src_table_2.drop(["person_id", "EDRN"], axis=1, inplace=True)
     src_table_2 = add_junk_ids(src_table_2)
     src_table_2["start_date"] = generate_random_dates(n=25)
-    src_table_2["end_date"] = src_table_2.start_date + add_years
+    src_table_2["end_date"] = src_table_2.start_date.apply(add_random_days)
     src_table_2["start_day"] = src_table_2.start_date.apply(lambda x: x.day)
     src_table_2["start_month"] = src_table_2.start_date.apply(lambda x: x.month)
     src_table_2["start_year"] = src_table_2.start_date.apply(lambda x: x.year)
@@ -136,7 +136,7 @@ def build_test_environment():
     src_table_4["start_date_string"] = src_table_4.start_date.apply(
        lambda x: "-".join([str(x.day), str(x.month), str(x.year)[-2:]])
     )
-    src_table_4["end_date"] = src_table_4.start_date + add_years
+    src_table_4["end_date"] = src_table_4.start_date.apply(add_random_days)
     src_table_4["end_date_string"] = src_table_4.end_date.apply(
        lambda x: "-".join([str(x.day), str(x.month), str(x.year)[-2:]])
     )
