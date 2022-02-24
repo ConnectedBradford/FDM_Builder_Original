@@ -52,7 +52,11 @@ def run_sql_query(sql, destination=None):
     query_job = CLIENT.query(sql, job_config=job_config)  # Make an API request.
     query_job.result()  # Wait for the job to complete.
     
-    return query_job
+    if destination:
+        result_table = CLIENT.get_table(destination)
+        return result_table
+    else:
+        return query_job
 
         
 def check_dataset_exists(dataset_id):

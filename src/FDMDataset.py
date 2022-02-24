@@ -22,14 +22,14 @@ class FDMDataset:
         print(f"\t\t ##### BUILDING FDM DATASET {self.dataset_id} #####")
         print("_" * 80 + "\n")
         self._check_fdm_tables()
-        print("\n2. Building person table:\n")
+        print("\n2. Building person table\n")
         self._build_person_table()
-        print("5. Building initial observation_period table\n")
+        print("3. Building initial observation_period table\n")
         self._build_observation_period_table()
         self._split_problem_entries_from_src_tables()
-        print("\n7. Rebuilding person table:\n")
+        print("\n5. Rebuilding person table\n")
         self._build_person_table()
-        print("8. Rebuilding observation_period table\n")
+        print("6. Rebuilding observation_period table\n")
         self._build_observation_period_table()
         print("_" * 80 + "\n")
         print(f"\t ##### BUILD PROCESS FOR {self.dataset_id} COMPLETE! #####\n")
@@ -71,12 +71,12 @@ class FDMDataset:
                 )
             else:
                 if check_table_exists(table.full_table_id + "_problems"): 
-                    self._add_error_entries_back_into_table(table.table_id)
+                    self._add_problem_entries_back_into_table(table.table_id)
                 print(f"\t* {table.table_id} - OK")
                 
                 
-    def _add_error_entries_back_into_table(self, table_id):
-        print(f"\t* Adding error entries back into {table_id}")
+    def _add_problem_entries_back_into_table(self, table_id):
+        print(f"\t* Adding problem entries back into {table_id}")
         full_table_id = f"{PROJECT}.{self.dataset_id}.{table_id}"
         union_sql = f"""
             SELECT * 
@@ -86,7 +86,7 @@ class FDMDataset:
             FROM `{full_table_id + "_problems"}`
         """
         run_sql_query(sql=union_sql, destination=full_table_id)
-        CLIENT.delete_table(f"{PROJECT}.{self.dataset_id}.{table_id}_problem",  
+        CLIENT.delete_table(f"{PROJECT}.{self.dataset_id}.{table_id}_problems",  
                             not_found_ok=False)
               
         
@@ -107,7 +107,6 @@ class FDMDataset:
         run_sql_query(person_ids_sql, destination=self.person_table_id) 
         
         # join columns from master person table in query
-        print(f"\t* Joining data from master person table")
         full_person_table_sql = f"""
             SELECT a.person_id, b.* EXCEPT(person_id)
             FROM `{self.person_table_id}` a
@@ -115,9 +114,10 @@ class FDMDataset:
             ON a.person_id = b.person_id
             ORDER BY person_id
         """
-        run_sql_query(full_person_table_sql, 
-                      destination=self.person_table_id)
-        print("\t* Person table built!\n")
+        person_bq_table = run_sql_query(full_person_table_sql,  
+                                        destination=self.person_table_id)
+        
+        print(f"\t* Person table built with {person_bq_table.num_rows} entries\n")
         
     
     def _build_observation_period_table(self):
@@ -163,125 +163,131 @@ class FDMDataset:
             GROUP BY person_id 
             ORDER BY person_id
         """
-        run_sql_query(observation_period_sql,
-                      destination=self.observation_period_table_id)
+        obs_bq_table = run_sql_query(observation_period_sql, 
+                                     destination=self.observation_period_table_id)
         
-        print(f"\t* observation_period table built\n")
+        print(f"\t* observation_period table built with {obs_bq_table.num_rows} entries\n")
         
         
-    def _add_problem_entries_column_to_src_tables(self):
+    def _add_problem_entries_column_to_table(self, table):
         
-        print("6. Separating out problem entries from source tables\n")
-        for table in self.tables:
-            no_person_id = "person_id IS NULL"
-            person_id_not_in_master = f"""
-                NOT EXISTS(
-                    SELECT person_id
-                    FROM `{self.person_table_id}` as person
-                    WHERE person.person_id = src.person_id
-                )
-            """
-            person_has_no_dob = f"""
-                EXISTS(
-                    SELECT person_id
-                    FROM `{self.person_table_id}` as person
-                    WHERE person.person_id = src.person_id
-                        AND person.birth_datetime IS NULL
-                )
-            """
-            no_event_start_date = "event_start_date is NULL"
-            event_start_before_obs_start = f"""
+        
+        no_person_id = "person_id IS NULL"
+        person_id_not_in_master = f"""
+            NOT EXISTS(
+                SELECT person_id
+                FROM `{self.person_table_id}` as person
+                WHERE person.person_id = src.person_id
+            )
+        """
+        person_has_no_dob = f"""
+            EXISTS(
+                SELECT person_id
+                FROM `{self.person_table_id}` as person
+                WHERE person.person_id = src.person_id
+                    AND person.birth_datetime IS NULL
+            )
+        """
+        no_event_start_date = "event_start_date is NULL"
+        event_start_before_obs_start = f"""
+            EXISTS(
+                SELECT observation_period_start_date
+                FROM `{self.observation_period_table_id}` AS obs
+                WHERE src.person_id = obs.person_id 
+                    AND src.event_start_date < obs.observation_period_start_date
+            )
+        """       
+        event_start_after_obs_end = f"""
+            EXISTS(
+                SELECT observation_period_end_date
+                FROM `{self.observation_period_table_id}` AS obs
+                WHERE src.person_id = obs.person_id 
+                    AND src.event_start_date > obs.observation_period_end_date
+            )
+        """
+        messages_with_problem_cases = {
+            "Entry has no person_id": no_person_id,
+            "person_id isn't in master person table": person_id_not_in_master,
+            "person has no bith_datetime in master person table": person_has_no_dob,
+            "Entry has no event_start_date": no_event_start_date,
+            "event_start_date is before observation_period_start_date": 
+            event_start_before_obs_start,
+            "event_start_date is after observation_period_end_date": 
+            event_start_after_obs_end,
+        }
+        if "event_end_date" in table.get_column_names():
+            no_event_end_date = "event_end_date is NULL"
+            end_before_start = "event_end_date < event_start_date"
+            event_end_before_obs_start = f"""
                 EXISTS(
                     SELECT observation_period_start_date
                     FROM `{self.observation_period_table_id}` AS obs
                     WHERE src.person_id = obs.person_id 
-                        AND src.event_start_date < obs.observation_period_start_date
+                        AND src.event_end_date < obs.observation_period_start_date
                 )
-            """       
-            event_start_after_obs_end = f"""
+            """
+            event_end_after_obs_end = f"""
                 EXISTS(
                     SELECT observation_period_end_date
                     FROM `{self.observation_period_table_id}` AS obs
                     WHERE src.person_id = obs.person_id 
-                        AND src.event_start_date > obs.observation_period_end_date
+                        AND src.event_end_date > obs.observation_period_end_date
                 )
             """
-            messages_with_problem_cases = {
-                "Entry has no person_id": no_person_id,
-                "person_id isn't in master person table": person_id_not_in_master,
-                "person has no bith_datetime in master person table": person_has_no_dob,
-                "Entry has no event_start_date": no_event_start_date,
-                "event_start_date is before observation_period_start_date": 
-                event_start_before_obs_start,
-                "event_start_date is after observation_period_end_date": 
-                event_start_after_obs_end,
-            }
-            if "event_end_date" in table.get_column_names():
-                no_event_end_date = "event_end_date is NULL"
-                end_before_start = "event_end_date < event_start_date"
-                event_end_before_obs_start = f"""
-                    EXISTS(
-                        SELECT observation_period_start_date
-                        FROM `{self.observation_period_table_id}` AS obs
-                        WHERE src.person_id = obs.person_id 
-                            AND src.event_end_date < obs.observation_period_start_date
-                    )
-                """
-                event_end_after_obs_end = f"""
-                    EXISTS(
-                        SELECT observation_period_end_date
-                        FROM `{self.observation_period_table_id}` AS obs
-                        WHERE src.person_id = obs.person_id 
-                            AND src.event_end_date > obs.observation_period_end_date
-                    )
-                """
-                messages_with_problem_cases[
-                    "Entry has no event_start_date"
-                ] = no_event_end_date
-                messages_with_problem_cases[
-                    "event_end_date is before event_start_date"
-                ] = end_before_start
-                messages_with_problem_cases[
-                    "event_end_date is before observation_period_start_date" 
-                ] = event_end_before_obs_start
-                messages_with_problem_cases[
-                    "event_end_date is after observation_period_end_date"
-                ] = event_end_after_obs_end
-                
-            
-            problem_col_cases = ("CASE " + " ".join([
-                f'WHEN {problem_sql} THEN "{problem_text}"'
-                for problem_text, problem_sql in messages_with_problem_cases.items()
-            ]) + ' ELSE "No problem" END')
-            
-            problem_tab_sql = f"""
-                SELECT {problem_col_cases} AS problem, *
-                FROM `{table.full_table_id}` AS src
-                ORDER BY person_id
-            """
-            
-            run_sql_query(problem_tab_sql, destination=table.full_table_id)
+            messages_with_problem_cases[
+                "Entry has no event_start_date"
+            ] = no_event_end_date
+            messages_with_problem_cases[
+                "event_end_date is before event_start_date"
+            ] = end_before_start
+            messages_with_problem_cases[
+                "event_end_date is before observation_period_start_date" 
+            ] = event_end_before_obs_start
+            messages_with_problem_cases[
+                "event_end_date is after observation_period_end_date"
+            ] = event_end_after_obs_end
+
+
+        problem_col_cases = ("CASE " + " ".join([
+            f'WHEN {problem_sql} THEN "{problem_text}"'
+            for problem_text, problem_sql in messages_with_problem_cases.items()
+        ]) + ' ELSE "No problem" END')
+
+        problem_tab_sql = f"""
+            SELECT {problem_col_cases} AS problem, *
+            FROM `{table.full_table_id}` AS src
+            ORDER BY person_id
+        """
+
+        run_sql_query(problem_tab_sql, destination=table.full_table_id)
             
             
     def _split_problem_entries_from_src_tables(self):
 
-        self._add_problem_entries_column_to_src_tables()
 
+        print("4. Separating out problem entries from source tables\n")
         for table in self.tables:
 
+            print(f"\t* {table.table_id}: ", end=" ")
+            self._add_problem_entries_column_to_table(table)
             problem_table_sql = f"""
                 SELECT * FROM `{table.full_table_id}`
                 WHERE problem != "No problem"
                 ORDER BY person_id
             """
             problem_table_id = f"{table.full_table_id}_problems"
-            run_sql_query(problem_table_sql, destination=problem_table_id)
+            problem_bq_table = run_sql_query(problem_table_sql, 
+                                             destination=problem_table_id)
+            print(f"{problem_bq_table.num_rows} problem entries identified "
+                  f"and removed to\n\t  {table.table_id}_problems", end=" - ")
 
             src_table_sql = f"""
                 SELECT * EXCEPT(problem) FROM `{table.full_table_id}`
                 WHERE problem = "No problem"
                 ORDER BY person_id
             """
-            run_sql_query(src_table_sql, destination=table.full_table_id)
+            src_bq_table = run_sql_query(src_table_sql, 
+                                         destination=table.full_table_id)
+            print(f"{src_bq_table.num_rows} entries remain in {table.table_id}")
             
         
