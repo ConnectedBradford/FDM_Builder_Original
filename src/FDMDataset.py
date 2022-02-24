@@ -9,8 +9,7 @@ class FDMDataset:
         self.dataset_id = dataset_id
         self.person_table_id = f"{PROJECT}.{dataset_id}.person"
         self.observation_period_table_id = f"{PROJECT}.{dataset_id}.observation_period"
-        dataset_exists = self._check_dataset_exists()
-        if not dataset_exists:
+        if not check_dataset_exists(self.dataset_id):
             print(f"Dataset {self.dataset_id} doesn't yet exist!\n\n"
                   "Double-check that you've got the correct spelling. If you wish to\n"
                   "create a new dataset with that name (and you have the relevant permissions)\n"
@@ -49,14 +48,6 @@ class FDMDataset:
             print(f"Dataset {self.dataset_id} created")
         
     
-    def _check_dataset_exists(self):
-        try:
-            CLIENT.get_dataset(self.dataset_id)
-            return True
-        except:
-            return False
-        
-    
     def _check_fdm_tables(self):
               
         print("1. Checking source input tables:\n")
@@ -81,7 +72,24 @@ class FDMDataset:
                     f"wrong dataset for {table.table_id} - {table.dataset_id}"
                 )
             else:
+                if check_table_exists(table.full_table_id + "_outside_obs"): 
+                    self._add_error_entries_back_into_table(table.table_id)
                 print(f"\t* {table.table_id} - OK")
+                
+                
+    def _add_error_entries_back_into_table(self, table_id):
+        print(f"\t* Adding error entries back into {table_id}")
+        full_table_id = f"{PROJECT}.{self.dataset_id}.{table_id}"
+        union_sql = f"""
+            SELECT * 
+            FROM `{full_table_id}`
+            UNION ALL
+            SELECT * 
+            FROM `{full_table_id + "_outside_obs"}`
+        """
+        run_sql_query(sql=union_sql, destination=full_table_id)
+        CLIENT.delete_table(f"{PROJECT}.{self.dataset_id}.{table_id}_outside_obs",  
+                            not_found_ok=False)
               
         
     def _build_person_table(self):
@@ -232,15 +240,18 @@ class FDMDataset:
                     b.observation_period_start_date, 
                     b.observation_period_end_date
                 FROM `{table.full_table_id}` AS a
-                INNER JOIN `{self.observation_period_table_id}` AS b
+                LEFT JOIN `{self.observation_period_table_id}` AS b
                 ON a.person_id = b.person_id
             """
             error_entries_conditions = f"""
                 event_start_date < observation_period_start_date 
                 OR event_start_date > observation_period_end_date 
                 OR event_end_date > observation_period_end_date
+                OR person_id IS NULL
+                OR event_start_date IS NULL
+                OR event_end_date IS NULL
             """
-            error_entries_sql = f"""
+            shared_sql = f"""
                 WITH table_plus_obs AS (
                     {table_plus_obs_sql}
                 )
@@ -248,22 +259,12 @@ class FDMDataset:
                                 observation_period_end_date
                                 {", event_end_date)" if no_end_date
                                  else ")"}
-                FROM table_plus_obs
-                WHERE {error_entries_conditions}
+                FROM table_plus_obs 
             """
+            error_entries_sql = shared_sql + f"WHERE {error_entries_conditions}"
             error_table_id = f"{PROJECT}.{self.dataset_id}.{table.table_id}_outside_obs"
             run_sql_query(error_entries_sql, destination=error_table_id)
-            non_error_entries_sql = f"""
-                WITH table_plus_obs AS (
-                    {table_plus_obs_sql}
-                )
-                SELECT * EXCEPT(observation_period_start_date,
-                                observation_period_end_date
-                                {", event_end_date)" if no_end_date
-                                 else ")"}
-                FROM table_plus_obs
-                WHERE NOT({error_entries_conditions})
-            """
+            non_error_entries_sql = shared_sql + f"WHERE NOT ({error_entries_conditions})"
             run_sql_query(non_error_entries_sql, destination=table.full_table_id)
             print(f"\t* entries outside observation period removed from {table.table_id}")
             print(f"\t  and stored in {table.table_id}_outside_obs")

@@ -53,3 +53,21 @@ def run_sql_query(sql, destination=None):
     query_job.result()  # Wait for the job to complete.
     
     return query_job
+
+        
+def check_dataset_exists(dataset_id):
+    try:
+        CLIENT.get_dataset(dataset_id)
+        return True
+    except:
+        return False
+
+
+def check_table_exists(full_table_id):
+    try:
+        CLIENT.get_table(full_table_id)
+        return True
+    except:
+        return False
+        
+    
