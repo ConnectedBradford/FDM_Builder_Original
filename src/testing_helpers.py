@@ -28,7 +28,7 @@ def build_test_master_person_df():
         birth_datetime = generate_random_dates(n=100),
         death_datetime = pd.Series([], dtype="datetime64[ns]")
     ))
-    person_df.loc[person_df.person_id % 4 == 0, "death_datetime"] = (
+    person_df.loc[person_df.person_id % 2 == 0, "death_datetime"] = (
         person_df.birth_datetime.apply(add_random_days)
     )
     person_df["person_id"] = person_df.person_id.astype("string")
@@ -111,7 +111,7 @@ def build_test_environment():
     src_table_2.drop(["person_id", "EDRN"], axis=1, inplace=True)
     src_table_2 = add_junk_ids(src_table_2)
     src_table_2["start_date"] = generate_random_dates(n=25)
-    src_table_2["end_date"] = src_table_2.start_date.apply(add_random_days)
+    src_table_2["end_date"] = src_table_2.start_date.apply(lambda x: add_random_days(x, upper=10000))
     src_table_2["start_day"] = src_table_2.start_date.apply(lambda x: x.day)
     src_table_2["start_month"] = src_table_2.start_date.apply(lambda x: x.month)
     src_table_2["start_year"] = src_table_2.start_date.apply(lambda x: x.year)
@@ -136,7 +136,7 @@ def build_test_environment():
     src_table_4["start_date_string"] = src_table_4.start_date.apply(
        lambda x: "-".join([str(x.day), str(x.month), str(x.year)[-2:]])
     )
-    src_table_4["end_date"] = src_table_4.start_date.apply(add_random_days)
+    src_table_4["end_date"] = src_table_4.start_date.apply(lambda x: add_random_days(x))
     src_table_4["end_date_string"] = src_table_4.end_date.apply(
        lambda x: "-".join([str(x.day), str(x.month), str(x.year)[-2:]])
     )

@@ -24,11 +24,9 @@ class FDMDataset:
         self._check_fdm_tables()
         print("\n2. Building person table:\n")
         self._build_person_table()
-        self._build_missing_person_ids()
-        self._build_person_ids_missing_from_master()
         print("5. Building initial observation_period table\n")
         self._build_observation_period_table()
-        self._remove_entries_outside_observation_period()
+        self._split_problem_entries_from_src_tables()
         print("\n7. Rebuilding person table:\n")
         self._build_person_table()
         print("8. Rebuilding observation_period table\n")
@@ -72,7 +70,7 @@ class FDMDataset:
                     f"wrong dataset for {table.table_id} - {table.dataset_id}"
                 )
             else:
-                if check_table_exists(table.full_table_id + "_outside_obs"): 
+                if check_table_exists(table.full_table_id + "_problems"): 
                     self._add_error_entries_back_into_table(table.table_id)
                 print(f"\t* {table.table_id} - OK")
                 
@@ -84,11 +82,11 @@ class FDMDataset:
             SELECT * 
             FROM `{full_table_id}`
             UNION ALL
-            SELECT * 
-            FROM `{full_table_id + "_outside_obs"}`
+            SELECT * EXCEPT(problem)
+            FROM `{full_table_id + "_problems"}`
         """
         run_sql_query(sql=union_sql, destination=full_table_id)
-        CLIENT.delete_table(f"{PROJECT}.{self.dataset_id}.{table_id}_outside_obs",  
+        CLIENT.delete_table(f"{PROJECT}.{self.dataset_id}.{table_id}_problem",  
                             not_found_ok=False)
               
         
@@ -115,71 +113,13 @@ class FDMDataset:
             FROM `{self.person_table_id}` a
             INNER JOIN `{MASTER_PERSON}` b
             ON a.person_id = b.person_id
+            ORDER BY person_id
         """
         run_sql_query(full_person_table_sql, 
                       destination=self.person_table_id)
         print("\t* Person table built!\n")
         
     
-    def _build_missing_person_ids(self):
-        
-        print("3. Building table of individuals with no person_id\n")
-        select_queries = [
-            f"""
-                SELECT "{identifier}" AS identifier, {identifier} AS value 
-                FROM `{table.full_table_id}` 
-                WHERE person_id IS NULL 
-            """ 
-            for table in self.tables 
-            for identifier in table.get_identifier_columns() 
-            if identifier != "person_id"
-        ]
-        if select_queries:
-            union_query = "\nUNION ALL\n".join(select_queries)
-            sql = f"""
-                WITH missing_person_ids AS (
-                    {union_query}
-                )
-                SELECT *
-                FROM missing_person_ids
-                GROUP BY identifier, value
-            """
-            table_id = f"{PROJECT}.{self.dataset_id}.individuals_missing_person_id"
-            run_sql_query(sql, destination=table_id) 
-            tab = CLIENT.get_table(table_id)
-            print(f"\t* individuals_missing_person_id created with {tab.num_rows} entries\n")
-        else:
-            print(f"\t* all entries have a person_id\n")
-    
-            
-    def _build_person_ids_missing_from_master(self):
-        
-        print("4. Building person_ids missing from master table\n")
-        # generate new table with unique person ids
-        person_id_union_sql = "\nUNION ALL\n".join(
-            [f"SELECT person_id FROM `{table.full_table_id}`"
-             for table in self.tables]
-        )
-        missing_ids_sql = f"""
-            WITH all_person_ids AS (
-                {person_id_union_sql}
-            )
-            SELECT DISTINCT person_id
-            FROM all_person_ids
-            WHERE NOT EXISTS(
-                SELECT person_id
-                FROM `{self.person_table_id}` person_table
-                WHERE all_person_ids.person_id = person_table.person_id
-            )
-            AND person_id IS NOT NULL
-        """
-        table_id = f"{PROJECT}.{self.dataset_id}.person_ids_missing_from_masater"
-        run_sql_query(missing_ids_sql, destination=table_id) 
-        
-        tab = CLIENT.get_table(table_id)
-        print(f"\t* person_ids_missing_from_master created with {tab.num_rows} entries\n")
-        
-        
     def _build_observation_period_table(self):
         
         full_union_sql_list = []
@@ -221,6 +161,7 @@ class FDMDataset:
             MIN(possible_end_date) AS observation_period_end_date
             FROM possible_dates
             GROUP BY person_id 
+            ORDER BY person_id
         """
         run_sql_query(observation_period_sql,
                       destination=self.observation_period_table_id)
@@ -228,44 +169,119 @@ class FDMDataset:
         print(f"\t* observation_period table built\n")
         
         
-    def _remove_entries_outside_observation_period(self):
+    def _add_problem_entries_column_to_src_tables(self):
         
-        print("6. Removing entries outside observation period\n")
+        print("6. Separating out problem entries from source tables\n")
         for table in self.tables:
-            no_end_date = "event_end_date" not in table.get_column_names()
-            table_plus_obs_sql = f"""
-                SELECT a.*, 
-                    {"a.event_start_date AS event_end_date,"
-                     if no_end_date else ""}
-                    b.observation_period_start_date, 
-                    b.observation_period_end_date
-                FROM `{table.full_table_id}` AS a
-                LEFT JOIN `{self.observation_period_table_id}` AS b
-                ON a.person_id = b.person_id
-            """
-            error_entries_conditions = f"""
-                event_start_date < observation_period_start_date 
-                OR event_start_date > observation_period_end_date 
-                OR event_end_date > observation_period_end_date
-                OR person_id IS NULL
-                OR event_start_date IS NULL
-                OR event_end_date IS NULL
-            """
-            shared_sql = f"""
-                WITH table_plus_obs AS (
-                    {table_plus_obs_sql}
+            no_person_id = "person_id IS NULL"
+            person_id_not_in_master = f"""
+                NOT EXISTS(
+                    SELECT person_id
+                    FROM `{self.person_table_id}` as person
+                    WHERE person.person_id = src.person_id
                 )
-                SELECT * EXCEPT(observation_period_start_date, 
-                                observation_period_end_date
-                                {", event_end_date)" if no_end_date
-                                 else ")"}
-                FROM table_plus_obs 
             """
-            error_entries_sql = shared_sql + f"WHERE {error_entries_conditions}"
-            error_table_id = f"{PROJECT}.{self.dataset_id}.{table.table_id}_outside_obs"
-            run_sql_query(error_entries_sql, destination=error_table_id)
-            non_error_entries_sql = shared_sql + f"WHERE NOT ({error_entries_conditions})"
-            run_sql_query(non_error_entries_sql, destination=table.full_table_id)
-            print(f"\t* entries outside observation period removed from {table.table_id}")
-            print(f"\t  and stored in {table.table_id}_outside_obs")
+            person_has_no_dob = f"""
+                EXISTS(
+                    SELECT person_id
+                    FROM `{self.person_table_id}` as person
+                    WHERE person.person_id = src.person_id
+                        AND person.birth_datetime IS NULL
+                )
+            """
+            no_event_start_date = "event_start_date is NULL"
+            event_start_before_obs_start = f"""
+                EXISTS(
+                    SELECT observation_period_start_date
+                    FROM `{self.observation_period_table_id}` AS obs
+                    WHERE src.person_id = obs.person_id 
+                        AND src.event_start_date < obs.observation_period_start_date
+                )
+            """       
+            event_start_after_obs_end = f"""
+                EXISTS(
+                    SELECT observation_period_end_date
+                    FROM `{self.observation_period_table_id}` AS obs
+                    WHERE src.person_id = obs.person_id 
+                        AND src.event_start_date > obs.observation_period_end_date
+                )
+            """
+            messages_with_problem_cases = {
+                "Entry has no person_id": no_person_id,
+                "person_id isn't in master person table": person_id_not_in_master,
+                "person has no bith_datetime in master person table": person_has_no_dob,
+                "Entry has no event_start_date": no_event_start_date,
+                "event_start_date is before observation_period_start_date": 
+                event_start_before_obs_start,
+                "event_start_date is after observation_period_end_date": 
+                event_start_after_obs_end,
+            }
+            if "event_end_date" in table.get_column_names():
+                no_event_end_date = "event_end_date is NULL"
+                end_before_start = "event_end_date < event_start_date"
+                event_end_before_obs_start = f"""
+                    EXISTS(
+                        SELECT observation_period_start_date
+                        FROM `{self.observation_period_table_id}` AS obs
+                        WHERE src.person_id = obs.person_id 
+                            AND src.event_end_date < obs.observation_period_start_date
+                    )
+                """
+                event_end_after_obs_end = f"""
+                    EXISTS(
+                        SELECT observation_period_end_date
+                        FROM `{self.observation_period_table_id}` AS obs
+                        WHERE src.person_id = obs.person_id 
+                            AND src.event_end_date > obs.observation_period_end_date
+                    )
+                """
+                messages_with_problem_cases[
+                    "Entry has no event_start_date"
+                ] = no_event_end_date
+                messages_with_problem_cases[
+                    "event_end_date is before event_start_date"
+                ] = end_before_start
+                messages_with_problem_cases[
+                    "event_end_date is before observation_period_start_date" 
+                ] = event_end_before_obs_start
+                messages_with_problem_cases[
+                    "event_end_date is after observation_period_end_date"
+                ] = event_end_after_obs_end
+                
+            
+            problem_col_cases = ("CASE " + " ".join([
+                f'WHEN {problem_sql} THEN "{problem_text}"'
+                for problem_text, problem_sql in messages_with_problem_cases.items()
+            ]) + ' ELSE "No problem" END')
+            
+            problem_tab_sql = f"""
+                SELECT {problem_col_cases} AS problem, *
+                FROM `{table.full_table_id}` AS src
+                ORDER BY person_id
+            """
+            
+            run_sql_query(problem_tab_sql, destination=table.full_table_id)
+            
+            
+    def _split_problem_entries_from_src_tables(self):
+
+        self._add_problem_entries_column_to_src_tables()
+
+        for table in self.tables:
+
+            problem_table_sql = f"""
+                SELECT * FROM `{table.full_table_id}`
+                WHERE problem != "No problem"
+                ORDER BY person_id
+            """
+            problem_table_id = f"{table.full_table_id}_problems"
+            run_sql_query(problem_table_sql, destination=problem_table_id)
+
+            src_table_sql = f"""
+                SELECT * EXCEPT(problem) FROM `{table.full_table_id}`
+                WHERE problem = "No problem"
+                ORDER BY person_id
+            """
+            run_sql_query(src_table_sql, destination=table.full_table_id)
+            
         
