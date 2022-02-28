@@ -15,11 +15,11 @@ def rename_columns_in_bigquery(table_id, names_map, verbose=True):
     
     alias_list = []
     if verbose:
-        print("Renaming Columns:")
+        print("\tRenaming Columns:")
     for old_name, new_name in names_map.items():
         alias_list.append(f"{old_name} AS {new_name}")
         if verbose:
-            print(f"{old_name} -> {new_name}")
+            print(f"\t{old_name} -> {new_name}")
     alias_string = ", ".join(alias_list)
     old_names_string = ", ".join(names_map.keys())
     
@@ -30,7 +30,7 @@ def rename_columns_in_bigquery(table_id, names_map, verbose=True):
     
     run_sql_query(sql=sql, destination=table_id)
     if verbose:
-        print("Renaming Complete\n")
+        print("\tRenaming Complete\n")
     
     
 def clear_dataset(dataset_id):

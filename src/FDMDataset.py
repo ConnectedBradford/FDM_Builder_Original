@@ -5,7 +5,7 @@ from FDMTable import *
 class FDMDataset:
     
     
-    def __init__(self, dataset_id, fdm_tables):
+    def __init__(self, dataset_id):
         self.dataset_id = dataset_id
         self.person_table_id = f"{PROJECT}.{dataset_id}.person"
         self.observation_period_table_id = f"{PROJECT}.{dataset_id}.observation_period"
@@ -14,22 +14,22 @@ class FDMDataset:
                   "Double-check that you've got the correct spelling. If you wish to\n"
                   "create a new dataset with that name (and you have the relevant permissions)\n"
                   "run .create_dataset()")
-        self.tables = fdm_tables
     
     
     def build(self):
         
         print(f"\t\t ##### BUILDING FDM DATASET {self.dataset_id} #####")
         print("_" * 80 + "\n")
-        self._check_fdm_tables()
-        print("\n2. Building person table\n")
+        build_ready = self._get_fdm_tables()
+        self.add_problem_entries_back_into_src_tables()
+        print("\nBuilding person table\n")
         self._build_person_table()
-        print("3. Building initial observation_period table\n")
+        print("Building initial observation_period table\n")
         self._build_observation_period_table()
         self._split_problem_entries_from_src_tables()
-        print("\n5. Rebuilding person table\n")
+        print("\nRebuilding person table\n")
         self._build_person_table()
-        print("6. Rebuilding observation_period table\n")
+        print("Rebuilding observation_period table\n")
         self._build_observation_period_table()
         print("_" * 80 + "\n")
         print(f"\t ##### BUILD PROCESS FOR {self.dataset_id} COMPLETE! #####\n")
@@ -46,49 +46,66 @@ class FDMDataset:
             print(f"Dataset {self.dataset_id} created")
         
     
-    def _check_fdm_tables(self):
+    def _get_fdm_tables(self):
               
-        print("1. Checking source input tables:\n")
+        print("1. Checking dataset for source tables:\n")
         
-        for table in self.tables:
-            
-            if not type(table) is FDMTable:
-                raise ValueError(
-                    f"\t{table} is not an FDM table. All inputs must be built FDM tables."
-                    "\n\tCheck and re-initialise FDMDataset with correct input."
-                )
-            elif not "person_id" in  table.get_column_names():
-                raise ValueError(
-                    "aint no person_id"
-                )
-            elif not "event_start_date" in  table.get_column_names():
-                raise ValueError(
-                    "aint no event_start_date"
-                )
-            elif not table.dataset_id == self.dataset_id:
-                raise ValueError(
-                    f"wrong dataset for {table.table_id} - {table.dataset_id}"
-                )
+        standard_tables = ["person", "observation_period"]
+        fdm_src_tables = []
+        for table in CLIENT.list_tables(self.dataset_id):
+            if table.table_id in standard_tables or "problems" in table.table_id:
+                continue
+            fdm_table = FDMTable(
+                source_table_full_id = (f"{PROJECT}.{self.dataset_id}"
+                                        f".{table.table_id}"),
+                dataset_id = self.dataset_id
+            )
+            (exists, has_person_id, 
+             has_event_start, has_event_end) = fdm_table.check_build()
+            if not has_person_id or not has_event_start:
+                person_missing = "* person_id " if not has_person_id else ""
+                start_missing = "* event_start_date " if not has_event_start else ""
+                print(f"""
+    {table.table_id} is missing: {person_missing}{start_missing}
+    
+    Complete the table build process for {table.table_id} and then re-run the
+    dataset build.
+                """)
+                return False
             else:
-                if check_table_exists(table.full_table_id + "_problems"): 
-                    self._add_problem_entries_back_into_table(table.table_id)
-                print(f"\t* {table.table_id} - OK")
+                event_end = ' * event_end_date' if has_event_end else ''
+                print(f"    {table.table_id} contains: "
+                      f" * person_id * event_start_date {event_end}"
+                      "\n\t-> Table ready")
+            fdm_src_tables.append(fdm_table)
+        self.tables = fdm_src_tables
                 
                 
-    def _add_problem_entries_back_into_table(self, table_id):
-        print(f"\t* Adding problem entries back into {table_id}")
-        full_table_id = f"{PROJECT}.{self.dataset_id}.{table_id}"
-        union_sql = f"""
-            SELECT * 
-            FROM `{full_table_id}`
-            UNION ALL
-            SELECT * EXCEPT(problem)
-            FROM `{full_table_id + "_problems"}`
-        """
-        run_sql_query(sql=union_sql, destination=full_table_id)
-        CLIENT.delete_table(f"{PROJECT}.{self.dataset_id}.{table_id}_problems",  
-                            not_found_ok=False)
-              
+    def add_problem_entries_back_into_src_tables(self):
+        problem_table_ids = [
+            table.table_id[:-9] 
+            for table in CLIENT.list_tables(self.dataset_id)
+            if "problems" in table.table_id 
+        ]
+        if problem_table_ids:
+            print(f"\tAdding problem entries back into tables:")
+            for table_id in problem_table_ids:
+                print(f"    {table_id}", end="")
+                full_table_id = f"{PROJECT}.{self.dataset_id}.{table_id}"
+                union_sql = f"""
+                    SELECT * 
+                    FROM `{full_table_id}`
+                    UNION ALL
+                    SELECT * EXCEPT(problem)
+                    FROM `{full_table_id + "_problems"}`
+                """
+                run_sql_query(sql=union_sql, destination=full_table_id)
+                CLIENT.delete_table(
+                    f"{PROJECT}.{self.dataset_id}.{table_id}_problems", 
+                    not_found_ok=False
+                )
+                print("- done")
+        
         
     def _build_person_table(self):
         
@@ -117,7 +134,8 @@ class FDMDataset:
         person_bq_table = run_sql_query(full_person_table_sql,  
                                         destination=self.person_table_id)
         
-        print(f"\t* Person table built with {person_bq_table.num_rows} entries\n")
+        print(f"    * Person table built with {person_bq_table.num_rows} "
+              "entries\n")
         
     
     def _build_observation_period_table(self):
@@ -166,7 +184,8 @@ class FDMDataset:
         obs_bq_table = run_sql_query(observation_period_sql, 
                                      destination=self.observation_period_table_id)
         
-        print(f"\t* observation_period table built with {obs_bq_table.num_rows} entries\n")
+        print(f"    * observation_period table built with {obs_bq_table.num_rows} "
+              "entries\n")
         
         
     def _add_problem_entries_column_to_table(self, table):
@@ -268,7 +287,7 @@ class FDMDataset:
         print("4. Separating out problem entries from source tables\n")
         for table in self.tables:
 
-            print(f"\t* {table.table_id}: ", end=" ")
+            print(f"    {table.table_id}:")
             self._add_problem_entries_column_to_table(table)
             problem_table_sql = f"""
                 SELECT * FROM `{table.full_table_id}`
@@ -278,8 +297,8 @@ class FDMDataset:
             problem_table_id = f"{table.full_table_id}_problems"
             problem_bq_table = run_sql_query(problem_table_sql, 
                                              destination=problem_table_id)
-            print(f"{problem_bq_table.num_rows} problem entries identified "
-                  f"and removed to\n\t  {table.table_id}_problems", end=" - ")
+            print(f"\t* {problem_bq_table.num_rows} problem entries identified "
+                  f"and removed to {table.table_id}_problems")
 
             src_table_sql = f"""
                 SELECT * EXCEPT(problem) FROM `{table.full_table_id}`
@@ -288,6 +307,6 @@ class FDMDataset:
             """
             src_bq_table = run_sql_query(src_table_sql, 
                                          destination=table.full_table_id)
-            print(f"{src_bq_table.num_rows} entries remain in {table.table_id}")
+            print(f"\t* {src_bq_table.num_rows} entries remain in {table.table_id}")
             
         
