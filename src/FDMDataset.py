@@ -48,7 +48,7 @@ class FDMDataset:
     
     def _get_fdm_tables(self):
               
-        print("1. Checking dataset for source tables:\n")
+        print("Checking dataset for source tables:\n")
         
         standard_tables = ["person", "observation_period"]
         fdm_src_tables = []
@@ -88,9 +88,9 @@ class FDMDataset:
             if "problems" in table.table_id 
         ]
         if problem_table_ids:
-            print(f"\tAdding problem entries back into tables:")
+            print(f"\nAdding problem entries back into tables:\n")
             for table_id in problem_table_ids:
-                print(f"    {table_id}", end="")
+                print(f"    {table_id}", end=" ")
                 full_table_id = f"{PROJECT}.{self.dataset_id}.{table_id}"
                 union_sql = f"""
                     SELECT * 
