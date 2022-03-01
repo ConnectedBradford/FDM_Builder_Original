@@ -13,8 +13,8 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)
 # Set global variables
 PROJECT = "yhcr-prd-phm-bia-core"
 CLIENT = bigquery.Client(project=PROJECT)
-DEMOGRAPHICS = f"{PROJECT}.CY_TESTS_MASTER.demographics"
-MASTER_PERSON = f"{PROJECT}.CY_TESTS_MASTER.person"
+DEMOGRAPHICS = f"{PROJECT}.CY_STAGING_DATABASE.src_DemoGraphics_MASTER"
+MASTER_PERSON = f"{PROJECT}.CY_FDM_MASTER.person"
 
     
 class FDMTable:
