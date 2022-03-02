@@ -121,14 +121,14 @@ class FDMTable:
     def add_column(self, column_sql):
         sql = f"""
             SELECT *, {column_sql}
-            FROM {self.full_table_id}
+            FROM `{self.full_table_id}`
         """
         run_sql_query(sql, destination=self.full_table_id)
     
     
     def drop_column(self, column):
         sql = f"""
-            ALTER TABLE {self.full_table_id}
+            ALTER TABLE `{self.full_table_id}`
             DROP COLUMN {column}
         """
         run_sql_query(sql)
@@ -286,7 +286,7 @@ class FDMTable:
             """
             run_sql_query(sql, destination=self.full_table_id)
             if user_input or verbose:
-                print("    person_id column added")
+                print("\n    person_id column added")
             return True
             
             

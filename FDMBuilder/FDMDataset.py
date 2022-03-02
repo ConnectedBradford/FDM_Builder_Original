@@ -24,12 +24,10 @@ class FDMDataset:
         self.add_problem_entries_back_into_src_tables()
         print("\nBuilding person table\n")
         self._build_person_table()
-        print("Building initial observation_period table\n")
-        self._build_observation_period_table()
         self._split_problem_entries_from_src_tables()
         print("\nRebuilding person table\n")
         self._build_person_table()
-        print("Rebuilding observation_period table\n")
+        print("Building observation_period table\n")
         self._build_observation_period_table()
         print("_" * 80 + "\n")
         print(f"\t ##### BUILD PROCESS FOR {self.dataset_id} COMPLETE! #####\n")
@@ -155,31 +153,14 @@ class FDMDataset:
         full_union_sql = "\nUNION ALL\n".join(full_union_sql_list)
             
         observation_period_sql = f"""
-            WITH possible_dates AS (
-                WITH all_src_dates AS (
-                    {full_union_sql}
-                )
-                SELECT person_id, 
-                    MIN(event_start_date) AS possible_start_date,
-                    MAX(event_end_date) AS possible_end_date 
-                FROM all_src_dates
-                GROUP BY person_id
-            
-                UNION ALL
-            
-                SELECT person_id,
-                    birth_datetime AS possible_start_date, 
-                    DATETIME_ADD(IFNULL(death_datetime, 
-                                        DATETIME "9999-01-01 00:00:00"), 
-                                 INTERVAL 42 DAY) as possible_end_date 
-                FROM `{self.person_table_id}`
+            WITH all_src_dates AS (
+                {full_union_sql}
             )
             SELECT person_id, 
-            MAX(possible_start_date) AS observation_period_start_date,
-            MIN(possible_end_date) AS observation_period_end_date
-            FROM possible_dates
-            GROUP BY person_id 
-            ORDER BY person_id
+                MIN(event_start_date) AS observation_period_start_date,
+                MAX(event_end_date) AS observation_period_end_date 
+            FROM all_src_dates
+            GROUP BY person_id
         """
         obs_bq_table = run_sql_query(observation_period_sql, 
                                      destination=self.observation_period_table_id)
@@ -189,8 +170,8 @@ class FDMDataset:
         
         
     def _add_problem_entries_column_to_table(self, table):
-        
-        
+
+         
         no_person_id = "person_id IS NULL"
         person_id_not_in_master = f"""
             NOT EXISTS(
@@ -208,20 +189,35 @@ class FDMDataset:
             )
         """
         no_event_start_date = "event_start_date is NULL"
-        event_start_before_obs_start = f"""
+        event_start_in_pre_natal_period = f"""
             EXISTS(
-                SELECT observation_period_start_date
-                FROM `{self.observation_period_table_id}` AS obs
-                WHERE src.person_id = obs.person_id 
-                    AND src.event_start_date < obs.observation_period_start_date
+                SELECT birth_datetime
+                FROM `{self.person_table_id}` AS person
+                WHERE src.person_id = person.person_id 
+                    AND src.event_start_date < person.birth_datetime
+                    AND DATETIME_ADD(
+                        src.event_start_date, 
+                        INTERVAL 300 DAY) >= person.birth_datetime
             )
         """       
-        event_start_after_obs_end = f"""
+        event_start_before_pre_natal_period = f"""
             EXISTS(
-                SELECT observation_period_end_date
-                FROM `{self.observation_period_table_id}` AS obs
-                WHERE src.person_id = obs.person_id 
-                    AND src.event_start_date > obs.observation_period_end_date
+                SELECT birth_datetime
+                FROM `{self.person_table_id}` AS person
+                WHERE src.person_id = person.person_id 
+                    AND DATETIME_ADD(
+                        src.event_start_date, 
+                        INTERVAL 294 DAY) < person.birth_datetime
+            )
+        """       
+        event_start_after_death = f"""
+            EXISTS(
+                SELECT death_datetime
+                FROM `{self.person_table_id}` AS person
+                WHERE src.person_id = person.person_id 
+                    AND person.death_datetime IS NOT NULL
+                    AND src.event_start_date > DATETIME_ADD(person.death_datetime,
+                                                            INTERVAL 42 DAY)
             )
         """
         messages_with_problem_cases = {
@@ -229,42 +225,46 @@ class FDMDataset:
             "person_id isn't in master person table": person_id_not_in_master,
             "person has no bith_datetime in master person table": person_has_no_dob,
             "Entry has no event_start_date": no_event_start_date,
-            "event_start_date is before observation_period_start_date": 
-            event_start_before_obs_start,
-            "event_start_date is after observation_period_end_date": 
-            event_start_after_obs_end,
+            "event_start_date is before person birth_datetime - Note: Within pre-natal period": 
+            event_start_in_pre_natal_period,
+            "event_start_date is before person birth_datetime": 
+            event_start_before_pre_natal_period,
+            "event_start_date is after death_datetime (+42 days)": 
+            event_start_after_death,
         }
         if "event_end_date" in table.get_column_names():
             no_event_end_date = "event_end_date is NULL"
             end_before_start = "event_end_date < event_start_date"
-            event_end_before_obs_start = f"""
+            event_end_before_birth = f"""
                 EXISTS(
-                    SELECT observation_period_start_date
-                    FROM `{self.observation_period_table_id}` AS obs
-                    WHERE src.person_id = obs.person_id 
-                        AND src.event_end_date < obs.observation_period_start_date
+                    SELECT birth_datetime
+                    FROM `{self.person_table_id}` AS person
+                    WHERE src.person_id = person.person_id 
+                        AND src.event_end_date < person.birth_datetime
                 )
             """
-            event_end_after_obs_end = f"""
+            event_end_after_death = f"""
                 EXISTS(
-                    SELECT observation_period_end_date
-                    FROM `{self.observation_period_table_id}` AS obs
-                    WHERE src.person_id = obs.person_id 
-                        AND src.event_end_date > obs.observation_period_end_date
+                    SELECT death_datetime
+                    FROM `{self.person_table_id}` AS person
+                    WHERE src.person_id = person.person_id 
+                        AND person.death_datetime IS NOT NULL
+                        AND src.event_end_date > DATETIME_ADD(person.death_datetime, 
+                                                              INTERVAL 42 DAY)
                 )
             """
             messages_with_problem_cases[
-                "Entry has no event_start_date"
+                "Entry has no event_end_date"
             ] = no_event_end_date
             messages_with_problem_cases[
                 "event_end_date is before event_start_date"
             ] = end_before_start
             messages_with_problem_cases[
-                "event_end_date is before observation_period_start_date" 
-            ] = event_end_before_obs_start
+                "event_end_date is before person birth_datetime" 
+            ] = event_end_before_birth
             messages_with_problem_cases[
-                "event_end_date is after observation_period_end_date"
-            ] = event_end_after_obs_end
+                "event_end_date is after person death_datetime"
+            ] = event_end_after_death
 
 
         problem_col_cases = ("CASE " + " ".join([
@@ -284,7 +284,7 @@ class FDMDataset:
     def _split_problem_entries_from_src_tables(self):
 
 
-        print("4. Separating out problem entries from source tables\n")
+        print("Separating out problem entries from source tables\n")
         for table in self.tables:
 
             print(f"    {table.table_id}:")
