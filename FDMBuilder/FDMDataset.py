@@ -20,14 +20,16 @@ class FDMDataset:
         
         print(f"\t\t ##### BUILDING FDM DATASET {self.dataset_id} #####")
         print("_" * 80 + "\n")
+        print("1. Checking dataset for source tables:\n")
         build_ready = self._get_fdm_tables()
         self.add_problem_entries_back_into_src_tables()
-        print("\nBuilding person table\n")
+        print("2. Building person table\n")
         self._build_person_table()
+        print("3. Separating out problem entries from source tables\n")
         self._split_problem_entries_from_src_tables()
-        print("\nRebuilding person table\n")
+        print("\n4. Rebuilding person table\n")
         self._build_person_table()
-        print("Building observation_period table\n")
+        print("5. Building observation_period table\n")
         self._build_observation_period_table()
         print("_" * 80 + "\n")
         print(f"\t ##### BUILD PROCESS FOR {self.dataset_id} COMPLETE! #####\n")
@@ -46,8 +48,6 @@ class FDMDataset:
     
     def _get_fdm_tables(self):
               
-        print("Checking dataset for source tables:\n")
-        
         standard_tables = ["person", "observation_period"]
         fdm_src_tables = []
         for table in CLIENT.list_tables(self.dataset_id):
@@ -72,8 +72,8 @@ class FDMDataset:
                 return False
             else:
                 event_end = ' * event_end_date' if has_event_end else ''
-                print(f"    {table.table_id} contains: "
-                      f" * person_id * event_start_date {event_end}"
+                print(f"    * {table.table_id} contains: "
+                      f" - person_id - event_start_date {event_end}"
                       "\n\t-> Table ready")
             fdm_src_tables.append(fdm_table)
         self.tables = fdm_src_tables
@@ -86,7 +86,7 @@ class FDMDataset:
             if "problems" in table.table_id 
         ]
         if problem_table_ids:
-            print(f"\nAdding problem entries back into tables:\n")
+            print(f"\n1a. Adding problem entries back into tables:\n")
             for table_id in problem_table_ids:
                 print(f"    {table_id}", end=" ")
                 full_table_id = f"{PROJECT}.{self.dataset_id}.{table_id}"
@@ -284,7 +284,6 @@ class FDMDataset:
     def _split_problem_entries_from_src_tables(self):
 
 
-        print("Separating out problem entries from source tables\n")
         for table in self.tables:
 
             print(f"    {table.table_id}:")

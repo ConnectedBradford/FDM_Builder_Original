@@ -20,11 +20,17 @@ MASTER_PERSON = f"{PROJECT}.CY_FDM_MASTER.person"
 class FDMTable:
     
     
-    def __init__(self, source_table_full_id, dataset_id):
-        
-        self.source_table_full_id = source_table_full_id
+    def __init__(self, source_table_id, dataset_id):
+            
+        if len(source_table_id.split(".")) < 2:
+            raise ValueError( 
+                "source_table_id must include dataset_id i.e. `dataset_id.table_id`" 
+            )
+        elif len(source_table_id.split(".")) == 2: 
+            source_table_id = f"{PROJECT}." + source_table_id
+        self.source_table_full_id = source_table_id
         self.dataset_id = dataset_id
-        table_alias = source_table_full_id.split(".")[-1]
+        table_alias = source_table_id.split(".")[-1]
         self.table_id = table_alias
         full_table_id = f"{PROJECT}.{self.dataset_id}.{table_alias}"
         self.full_table_id = full_table_id
