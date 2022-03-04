@@ -69,6 +69,10 @@ def add_random_days(date, upper=3652):
     return date + pd.offsets.DateOffset(days=n_rand_days)
 
 
+def sub_random_days(date, upper=3652):
+    n_rand_days = int(np.random.choice(range(upper)))
+    return date - pd.offsets.DateOffset(days=n_rand_days)
+
 def build_test_environment():
     
     # set id variables
