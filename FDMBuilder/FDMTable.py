@@ -272,8 +272,7 @@ class FDMTable:
                 miss_named_id_col = response 
                 response = input(f"""
     Does {miss_named_id_col} contain person_ids, digests or EDRNs?
-    > Type either person_id, digest or EDRN: 
-                """)
+    > Type either person_id, digest or EDRN: """)
                 while response not in ["person_id", "digest", "EDRN"]:
                     response = input(f"""
     Response needs to match one of person_id, digest or EDRN and is 

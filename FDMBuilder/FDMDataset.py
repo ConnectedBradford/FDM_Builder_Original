@@ -54,8 +54,7 @@ class FDMDataset:
             if table.table_id in standard_tables or "problems" in table.table_id:
                 continue
             fdm_table = FDMTable(
-                source_table_full_id = (f"{PROJECT}.{self.dataset_id}"
-                                        f".{table.table_id}"),
+                source_table_id = (f".{self.dataset_id}.{table.table_id}"),
                 dataset_id = self.dataset_id
             )
             (exists, has_person_id, 
