@@ -28,6 +28,11 @@ class FDMTable:
             )
         elif len(source_table_id.split(".")) == 2: 
             source_table_id = f"{PROJECT}." + source_table_id
+            
+        if not check_table_exists(source_table_id):
+            raise ValueError(f"{source_table_id} doesn't exist - double check spelling and GCP then try again")
+        if not check_dataset_exists(dataset_id):
+            raise ValueError(f"Dataset {dataset_id} doesn't exist - double check spelling and GCP then try again")
         self.source_table_full_id = source_table_id
         self.dataset_id = dataset_id
         table_alias = source_table_id.split(".")[-1]
@@ -375,7 +380,8 @@ class FDMTable:
         dates_df.to_gbq(destination_table=temp_dates_id,
                         project_id=PROJECT,
                         table_schema=[{"name":"parsed_date", "type":"DATETIME"}],
-                        if_exists="replace")
+                        if_exists="replace",
+                        progress_bar=False)
 
         join_dates_sql = f"""
             SELECT dates.parsed_date AS {date_column_name}, src.*
