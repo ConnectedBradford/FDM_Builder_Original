@@ -23,7 +23,7 @@ class FDMDataset:
         print("1. Checking dataset for source tables:\n")
         build_ready = self._get_fdm_tables()
         self.add_problem_entries_back_into_src_tables()
-        print("2. Building person table\n")
+        print("\n2. Building person table\n")
         self._build_person_table()
         print("3. Separating out problem entries from source tables\n")
         self._split_problem_entries_from_src_tables()
@@ -54,7 +54,7 @@ class FDMDataset:
             if table.table_id in standard_tables or "problems" in table.table_id:
                 continue
             fdm_table = FDMTable(
-                source_table_id = (f".{self.dataset_id}.{table.table_id}"),
+                source_table_id = (f"{self.dataset_id}.{table.table_id}"),
                 dataset_id = self.dataset_id
             )
             (exists, has_person_id, 
