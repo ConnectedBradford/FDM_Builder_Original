@@ -202,6 +202,48 @@ class FDMTable:
         return pd.read_gbq(sql)
                                                                                                           
     
+    @_check_table_exists_in_dataset
+    def build_data_dict(self):
+        table = CLIENT.get_table(self.full_table_id)
+        data_dict = {
+            "variable_name": [],
+            "data_type": [],
+            "description": [],
+        }
+        for field in table.schema:
+            data_dict["variable_name"].append(field.name)
+            data_dict["data_type"].append(field.field_type)
+            description_sql = f"""
+                SELECT ARRAY_AGG(DISTINCT {field.name}) AS unique_values, 
+                    COUNT(DISTINCT {field.name}) AS n
+                FROM `{self.full_table_id}`
+                WHERE {field.name} IS NOT NULL
+            """
+            description_vals = pd.read_gbq(description_sql)
+            unique_values = pd.Series(description_vals.unique_values[0])
+            if description_vals.n[0] < 20:
+                description = "Unique Values: " 
+                description += ", ".join(
+                    [str(val) for val in unique_values.sort_values()]
+                )
+            elif field.field_type in ["INTEGER", "DATETIME", "FLOAT"]:
+                description = f"{len(unique_values)} Unique Values - "
+                description = f"Min: {unique_values.min()}, "
+                description += f"Max: {unique_values.max()}, "
+                description += f"Median: {unique_values.median()}, "
+            else:
+                description = f"{len(unique_values)} Unique Values - Examples: "
+                description += ", ".join(
+                    [str(val) for val in description_vals.unique_values[0][:5]]
+                )
+            data_dict["description"].append(description)
+        data_dict_df = pd.DataFrame(data_dict)
+        data_dict_df.to_gbq(destination_table=self.full_table_id + "_data_dict", 
+                            project_id=PROJECT, 
+                            if_exists="replace", 
+                            progress_bar=False)
+    
+    
     def copy_table_to_dataset(self, user_input=False, verbose=False):
         
         src_copy_exists = check_table_exists(self.full_table_id)

@@ -37,6 +37,8 @@ class FDMDataset:
         self._build_person_table()
         print("5. Building observation_period table\n")
         self._build_observation_period_table()
+        print("6. Building data dictionaries\n")
+        self._build_data_dictionaries()
         print("_" * 80 + "\n")
         print(f"\t ##### BUILD PROCESS FOR {self.dataset_id} COMPLETE! #####\n")
         
@@ -158,6 +160,13 @@ class FDMDataset:
         
         print(f"    * observation_period table built with {obs_bq_table.num_rows} "
               "entries\n")
+        
+        
+    def _build_data_dictionaries(self):
+        
+        for table in self.tables:
+            table.build_data_dict()
+            print(f"    * {table.table_id}_data_dict built")
         
         
     def _add_problem_entries_column_to_table(self, table):
