@@ -47,6 +47,19 @@ class FDMTable:
         )
         
         
+    def _check_table_exists_in_dataset(func):
+        
+        def return_fn(self, *args, **kwargs):
+            if not check_table_exists(self.full_table_id):
+                raise ValueError(f"""
+    A copy of {self.full_table_id} doesn't yet exist in f"{self.dataset_id}.
+    Try running .copy_table_to_dataset() and then try again """)
+            else:
+                return func(self, *args, **kwargs)
+                
+        return return_fn
+    
+    
     def check_build(self, verbose=True):
         table_exists = check_table_exists(self.full_table_id)
         if table_exists:
@@ -123,12 +136,14 @@ class FDMTable:
         print("Done.")
     
     
+    @_check_table_exists_in_dataset
     def get_column_names(self):
         
         table = CLIENT.get_table(self.full_table_id)
         return [field.name for field in table.schema]
             
             
+    @_check_table_exists_in_dataset
     def add_column(self, column_sql):
         sql = f"""
             SELECT *, {column_sql}
@@ -137,6 +152,7 @@ class FDMTable:
         run_sql_query(sql, destination=self.full_table_id)
     
     
+    @_check_table_exists_in_dataset
     def drop_column(self, column):
         sql = f"""
             ALTER TABLE `{self.full_table_id}`
@@ -145,12 +161,14 @@ class FDMTable:
         run_sql_query(sql)
     
     
+    @_check_table_exists_in_dataset
     def rename_columns(self, names_map, verbose=True):
         rename_columns_in_bigquery(table_id=self.full_table_id,
                                    names_map=names_map,
                                    verbose=verbose)
         
         
+    @_check_table_exists_in_dataset
     def head(self, n=10):
         sql = f"""
             SELECT *
@@ -233,6 +251,7 @@ class FDMTable:
                 print(f"\n    Continuing with existing copy of {self.table_id}")
             
             
+    
     def _add_person_id_to_table(self, user_input=False, verbose=False):
         
         
