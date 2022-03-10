@@ -127,7 +127,7 @@ test_table_2["end_month"] = test_table_2.end_date.apply(
 test_table_2["end_year"] = test_table_2.end_date.apply(
     lambda x: x.year
 )
-test_table_2.rename({"digest":"wrong_digest"}, axis=1, inplace=True)
+test_table_2.rename({"digest":"digest_with_wrong_name"}, axis=1, inplace=True)
 test_table_2 = test_table_2[["wrong_digest", "start_month", "start_year", 
                              "end_month", "end_year"]]
 test_table_2.to_gbq(destination_table="CY_FDM_BUILDER_TESTS.test_table_2",
