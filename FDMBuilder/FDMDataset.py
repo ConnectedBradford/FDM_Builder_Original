@@ -21,7 +21,14 @@ class FDMDataset:
         print("_" * 80 + "\n")
         print("1. Checking dataset for source tables:\n")
         build_ready = self._get_fdm_tables()
-        self.add_problem_entries_back_into_src_tables()
+        if not build_ready:
+            print(
+            "_" * 80 + "\n\n"  
+            f"\t ##### BUILD PROCESS FOR {self.dataset_id} COULD NOT BE COMPLETED! #####\n"
+            f"\tFollow the guidance provided above and then re-run .build() when you've\n"
+            f"\tresolved the issues preventing the build from completing."
+            )
+            return None
         print("\n2. Building person table\n")
         self._build_person_table()
         print("3. Separating out problem entries from source tables\n")
@@ -49,6 +56,7 @@ class FDMDataset:
               
         standard_tables = ["person", "observation_period"]
         fdm_src_tables = []
+        build_ready = True
         for table in CLIENT.list_tables(self.dataset_id):
             if table.table_id in standard_tables or "fdm_problems" in table.table_id:
                 continue
@@ -56,8 +64,8 @@ class FDMDataset:
                 source_table_id = (f"{self.dataset_id}.{table.table_id}"),
                 dataset_id = self.dataset_id
             )
-            (exists, has_person_id, 
-             has_fdm_start, has_fdm_end) = fdm_table.check_build()
+            (exists, has_person_id,  has_fdm_start, 
+             has_fdm_end, has_problem_table) = fdm_table.check_build()
             if not has_person_id or not has_fdm_start:
                 person_missing = "* person_id " if not has_person_id else ""
                 start_missing = "* fdm_start_date " if not has_fdm_start else ""
@@ -67,42 +75,27 @@ class FDMDataset:
     Complete the table build process for {table.table_id} and then re-run the
     dataset build.
                 """)
-                return False
+                build_ready = False
+            elif has_problem_table:
+                print(f"""
+    {table.table_id}_fdm_problems found in {self.dataset_id}:
+    
+    Source tables need to be re-combined with problem entries before the 
+    dataset build process can be executed. Run FDMTable.recombine() to add 
+    the problem entries back into {table.table_id} and then re-run the 
+    dataset build.
+                """)
+                build_ready = False
             else:
-                fdm_end = ' * fdm_end_date' if has_fdm_end else ''
+                fdm_end = ' fdm_end_date' if has_fdm_end else ''
                 print(f"    * {table.table_id} contains: "
                       f" - person_id - fdm_start_date {fdm_end}"
                       "\n\t-> Table ready")
             fdm_src_tables.append(fdm_table)
         self.tables = fdm_src_tables
+        return build_ready
                 
                 
-    def add_problem_entries_back_into_src_tables(self):
-        problem_table_ids = [
-            table.table_id[:-9] 
-            for table in CLIENT.list_tables(self.dataset_id)
-            if "fdm_problems" in table.table_id 
-        ]
-        if problem_table_ids:
-            print(f"\n1a. Adding problem entries back into tables:\n")
-            for table_id in problem_table_ids:
-                print(f"    {table_id}", end=" ")
-                full_table_id = f"{PROJECT}.{self.dataset_id}.{table_id}"
-                union_sql = f"""
-                    SELECT * 
-                    FROM `{full_table_id}`
-                    UNION ALL
-                    SELECT * EXCEPT(problem)
-                    FROM `{full_table_id + "_fdm_problems"}`
-                """
-                run_sql_query(sql=union_sql, destination=full_table_id)
-                CLIENT.delete_table(
-                    f"{PROJECT}.{self.dataset_id}.{table_id}_fdm_problems", 
-                    not_found_ok=False
-                )
-                print("- done")
-        
-        
     def _build_person_table(self):
         
         # generate new table with unique person ids
@@ -169,6 +162,10 @@ class FDMDataset:
         
     def _add_problem_entries_column_to_table(self, table):
 
+        if "fdm_problem" in table.get_column_names():
+            print(f"\tfdm_problem column already exists in {table.table_id}."
+                  " Dropping...")
+            table.drop_column("fdm_problem")
          
         no_person_id = "person_id IS NULL"
         person_id_not_in_master = f"""
@@ -271,7 +268,7 @@ class FDMDataset:
         ]) + ' ELSE "No problem" END')
 
         problem_tab_sql = f"""
-            SELECT {problem_col_cases} AS problem, *
+            SELECT {problem_col_cases} AS fdm_problem, *
             FROM `{table.full_table_id}` AS src
             ORDER BY person_id
         """
@@ -288,7 +285,7 @@ class FDMDataset:
             self._add_problem_entries_column_to_table(table)
             problem_table_sql = f"""
                 SELECT * FROM `{table.full_table_id}`
-                WHERE problem != "No problem"
+                WHERE fdm_problem != "No problem"
                 ORDER BY person_id
             """
             problem_table_id = f"{table.full_table_id}_fdm_problems"
@@ -298,8 +295,8 @@ class FDMDataset:
                   f"and removed to {table.table_id}_fdm_problems")
 
             src_table_sql = f"""
-                SELECT * EXCEPT(problem) FROM `{table.full_table_id}`
-                WHERE problem = "No problem"
+                SELECT * EXCEPT(fdm_problem) FROM `{table.full_table_id}`
+                WHERE fdm_problem = "No problem"
                 ORDER BY person_id
             """
             src_bq_table = run_sql_query(src_table_sql, 

@@ -42,8 +42,8 @@ class FDMTable:
         self._build_not_completed_message = (
             "_" * 80 + "\n\n"  
             f"\t ##### BUILD PROCESS FOR {self.table_id} COULD NOT BE COMPLETED! #####\n"
-            f"\n\tFollow the guidance provided above and then re-run .build() when you've\n"
-            f"\n\tresolved the issues preventing the build from completing."
+            f"\tFollow the guidance provided above and then re-run .build() when you've\n"
+            f"\tresolved the issues preventing the build from completing."
         )
         
         
@@ -60,6 +60,21 @@ class FDMTable:
         return return_fn
     
     
+    def _check_problems_table_doesnt_exist(func):
+        
+        def return_fn(self, *args, **kwargs):
+            if check_table_exists(self.full_table_id + "_fdm_problems"):
+                raise ValueError(f"""
+    A {self.table_id}_fdm_problems table exists in {self.dataset_id}. 
+    {self.table_id} should be 'recombined' with problem entries 
+    before any manipulations/changes to the table are performed. Run .recombine() 
+    and then try again""")
+            else:
+                return func(self, *args, **kwargs)
+                
+        return return_fn
+        
+    
     def check_build(self, verbose=True):
         table_exists = check_table_exists(self.full_table_id)
         if table_exists:
@@ -67,11 +82,16 @@ class FDMTable:
             person_id_present = "person_id" in column_names
             fdm_start_present = "fdm_start_date" in column_names
             fdm_end_present = "fdm_end_date" in column_names
+            fdm_end_present = "fdm_end_date" in column_names
+            problem_table_present = check_table_exists(self.full_table_id 
+                                                       + "_fdm_problems")
         else:
             person_id_present = False
             fdm_start_present = False
             fdm_end_present = False
-        return table_exists, person_id_present, fdm_start_present, fdm_end_present
+            problem_table_present = False
+        return (table_exists, person_id_present, fdm_start_present, 
+                fdm_end_present, problem_table_present)
         
     
     def build(self):
@@ -144,6 +164,7 @@ class FDMTable:
             
             
     @_check_table_exists_in_dataset
+    @_check_problems_table_doesnt_exist
     def add_column(self, column_sql):
         sql = f"""
             SELECT *, {column_sql}
@@ -153,6 +174,7 @@ class FDMTable:
     
     
     @_check_table_exists_in_dataset
+    @_check_problems_table_doesnt_exist
     def drop_column(self, column):
         sql = f"""
             ALTER TABLE `{self.full_table_id}`
@@ -162,6 +184,7 @@ class FDMTable:
     
     
     @_check_table_exists_in_dataset
+    @_check_problems_table_doesnt_exist
     def rename_columns(self, names_map, verbose=True):
         rename_columns_in_bigquery(table_id=self.full_table_id,
                                    names_map=names_map,
@@ -169,6 +192,7 @@ class FDMTable:
         
         
     @_check_table_exists_in_dataset
+    @_check_problems_table_doesnt_exist
     def head(self, n=10):
         sql = f"""
             SELECT *
@@ -250,6 +274,20 @@ class FDMTable:
             else:
                 print(f"\n    Continuing with existing copy of {self.table_id}")
             
+    
+    def recombine(self):
+        if not check_table_exists(self.full_table_id + "_fdm_problems"):
+            raise ValueError(f"{self.table_id} has no corresponding fdm "
+                             "problems table in {self.dataset_id}")
+        recombine_sql = f"""
+            SELECT * 
+            FROM {self.full_table_id + "_fdm_problems"}
+            UNION ALL
+            SELECT NULL AS fdm_problem, *
+            FROM {self.full_table_id}
+        """
+        run_sql_query(recombine_sql, destination=self.full_table_id)
+        CLIENT.delete_table(self.full_table_id + "_fdm_problems")
             
     
     def _add_person_id_to_table(self, user_input=False, verbose=False):
@@ -463,7 +501,7 @@ class FDMTable:
     What format does the date appear in YMD/YDM/DMY/MDY?
     > Type one: """)
                 while fdm_start_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
-                    fdm_start_date_cols = input("""
+                    fdm_start_date_format = input("""
     Response must be one of YMD/YDM/DMY/MDY."
     > Try again: """)
             else:
