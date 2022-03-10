@@ -4,7 +4,6 @@ from FDMBuilder.FDMTable import *
     
 class FDMDataset:
     
-    
     def __init__(self, dataset_id):
         self.dataset_id = dataset_id
         self.person_table_id = f"{PROJECT}.{dataset_id}.person"
@@ -51,17 +50,17 @@ class FDMDataset:
         standard_tables = ["person", "observation_period"]
         fdm_src_tables = []
         for table in CLIENT.list_tables(self.dataset_id):
-            if table.table_id in standard_tables or "problems" in table.table_id:
+            if table.table_id in standard_tables or "fdm_problems" in table.table_id:
                 continue
             fdm_table = FDMTable(
                 source_table_id = (f"{self.dataset_id}.{table.table_id}"),
                 dataset_id = self.dataset_id
             )
             (exists, has_person_id, 
-             has_event_start, has_event_end) = fdm_table.check_build()
-            if not has_person_id or not has_event_start:
+             has_fdm_start, has_fdm_end) = fdm_table.check_build()
+            if not has_person_id or not has_fdm_start:
                 person_missing = "* person_id " if not has_person_id else ""
-                start_missing = "* event_start_date " if not has_event_start else ""
+                start_missing = "* fdm_start_date " if not has_fdm_start else ""
                 print(f"""
     {table.table_id} is missing: {person_missing}{start_missing}
     
@@ -70,9 +69,9 @@ class FDMDataset:
                 """)
                 return False
             else:
-                event_end = ' * event_end_date' if has_event_end else ''
+                fdm_end = ' * fdm_end_date' if has_fdm_end else ''
                 print(f"    * {table.table_id} contains: "
-                      f" - person_id - event_start_date {event_end}"
+                      f" - person_id - fdm_start_date {fdm_end}"
                       "\n\t-> Table ready")
             fdm_src_tables.append(fdm_table)
         self.tables = fdm_src_tables
@@ -82,7 +81,7 @@ class FDMDataset:
         problem_table_ids = [
             table.table_id[:-9] 
             for table in CLIENT.list_tables(self.dataset_id)
-            if "problems" in table.table_id 
+            if "fdm_problems" in table.table_id 
         ]
         if problem_table_ids:
             print(f"\n1a. Adding problem entries back into tables:\n")
@@ -94,11 +93,11 @@ class FDMDataset:
                     FROM `{full_table_id}`
                     UNION ALL
                     SELECT * EXCEPT(problem)
-                    FROM `{full_table_id + "_problems"}`
+                    FROM `{full_table_id + "_fdm_problems"}`
                 """
                 run_sql_query(sql=union_sql, destination=full_table_id)
                 CLIENT.delete_table(
-                    f"{PROJECT}.{self.dataset_id}.{table_id}_problems", 
+                    f"{PROJECT}.{self.dataset_id}.{table_id}_fdm_problems", 
                     not_found_ok=False
                 )
                 print("- done")
@@ -139,11 +138,11 @@ class FDMDataset:
         
         full_union_sql_list = []
         for table in self.tables:
-            no_end_date = "event_end_date" not in table.get_column_names()
+            no_end_date = "fdm_end_date" not in table.get_column_names()
             union_sql = f"""
-                SELECT person_id, event_start_date, 
-                    {"event_start_date AS event_end_date"
-                     if no_end_date else "event_end_date"}
+                SELECT person_id, fdm_start_date, 
+                    {"fdm_start_date AS fdm_end_date"
+                     if no_end_date else "fdm_end_date"}
                 FROM `{table.full_table_id}`  
                 WHERE person_id IS NOT NULL
             """
@@ -156,8 +155,8 @@ class FDMDataset:
                 {full_union_sql}
             )
             SELECT person_id, 
-                MIN(event_start_date) AS observation_period_start_date,
-                MAX(event_end_date) AS observation_period_end_date 
+                MIN(fdm_start_date) AS observation_period_start_date,
+                MAX(fdm_end_date) AS observation_period_end_date 
             FROM all_src_dates
             GROUP BY person_id
         """
@@ -187,35 +186,35 @@ class FDMDataset:
                     AND person.birth_datetime IS NULL
             )
         """
-        no_event_start_date = "event_start_date is NULL"
-        event_start_in_pre_natal_period = f"""
+        no_fdm_start_date = "fdm_start_date is NULL"
+        fdm_start_in_pre_natal_period = f"""
             EXISTS(
                 SELECT birth_datetime
                 FROM `{self.person_table_id}` AS person
                 WHERE src.person_id = person.person_id 
-                    AND src.event_start_date < person.birth_datetime
+                    AND src.fdm_start_date < person.birth_datetime
                     AND DATETIME_ADD(
-                        src.event_start_date, 
+                        src.fdm_start_date, 
                         INTERVAL 300 DAY) >= person.birth_datetime
             )
         """       
-        event_start_before_pre_natal_period = f"""
+        fdm_start_before_pre_natal_period = f"""
             EXISTS(
                 SELECT birth_datetime
                 FROM `{self.person_table_id}` AS person
                 WHERE src.person_id = person.person_id 
                     AND DATETIME_ADD(
-                        src.event_start_date, 
+                        src.fdm_start_date, 
                         INTERVAL 294 DAY) < person.birth_datetime
             )
         """       
-        event_start_after_death = f"""
+        fdm_start_after_death = f"""
             EXISTS(
                 SELECT death_datetime
                 FROM `{self.person_table_id}` AS person
                 WHERE src.person_id = person.person_id 
                     AND person.death_datetime IS NOT NULL
-                    AND src.event_start_date > DATETIME_ADD(person.death_datetime,
+                    AND src.fdm_start_date > DATETIME_ADD(person.death_datetime,
                                                             INTERVAL 42 DAY)
             )
         """
@@ -223,47 +222,47 @@ class FDMDataset:
             "Entry has no person_id": no_person_id,
             "person_id isn't in master person table": person_id_not_in_master,
             "person has no bith_datetime in master person table": person_has_no_dob,
-            "Entry has no event_start_date": no_event_start_date,
-            "event_start_date is before person birth_datetime - Note: Within pre-natal period": 
-            event_start_in_pre_natal_period,
-            "event_start_date is before person birth_datetime": 
-            event_start_before_pre_natal_period,
-            "event_start_date is after death_datetime (+42 days)": 
-            event_start_after_death,
+            "Entry has no fdm_start_date": no_fdm_start_date,
+            "fdm_start_date is before person birth_datetime - Note: Within pre-natal period": 
+            fdm_start_in_pre_natal_period,
+            "fdm_start_date is before person birth_datetime": 
+            fdm_start_before_pre_natal_period,
+            "fdm_start_date is after death_datetime (+42 days)": 
+            fdm_start_after_death,
         }
-        if "event_end_date" in table.get_column_names():
-            no_event_end_date = "event_end_date is NULL"
-            end_before_start = "event_end_date < event_start_date"
-            event_end_before_birth = f"""
+        if "fdm_end_date" in table.get_column_names():
+            no_fdm_end_date = "fdm_end_date is NULL"
+            end_before_start = "fdm_end_date < fdm_start_date"
+            fdm_end_before_birth = f"""
                 EXISTS(
                     SELECT birth_datetime
                     FROM `{self.person_table_id}` AS person
                     WHERE src.person_id = person.person_id 
-                        AND src.event_end_date < person.birth_datetime
+                        AND src.fdm_end_date < person.birth_datetime
                 )
             """
-            event_end_after_death = f"""
+            fdm_end_after_death = f"""
                 EXISTS(
                     SELECT death_datetime
                     FROM `{self.person_table_id}` AS person
                     WHERE src.person_id = person.person_id 
                         AND person.death_datetime IS NOT NULL
-                        AND src.event_end_date > DATETIME_ADD(person.death_datetime, 
+                        AND src.fdm_end_date > DATETIME_ADD(person.death_datetime, 
                                                               INTERVAL 42 DAY)
                 )
             """
             messages_with_problem_cases[
-                "Entry has no event_end_date"
-            ] = no_event_end_date
+                "Entry has no fdm_end_date"
+            ] = no_fdm_end_date
             messages_with_problem_cases[
-                "event_end_date is before event_start_date"
+                "fdm_end_date is before fdm_start_date"
             ] = end_before_start
             messages_with_problem_cases[
-                "event_end_date is before person birth_datetime" 
-            ] = event_end_before_birth
+                "fdm_end_date is before person birth_datetime" 
+            ] = fdm_end_before_birth
             messages_with_problem_cases[
-                "event_end_date is after person death_datetime"
-            ] = event_end_after_death
+                "fdm_end_date is after person death_datetime"
+            ] = fdm_end_after_death
 
 
         problem_col_cases = ("CASE " + " ".join([
@@ -292,11 +291,11 @@ class FDMDataset:
                 WHERE problem != "No problem"
                 ORDER BY person_id
             """
-            problem_table_id = f"{table.full_table_id}_problems"
+            problem_table_id = f"{table.full_table_id}_fdm_problems"
             problem_bq_table = run_sql_query(problem_table_sql, 
                                              destination=problem_table_id)
             print(f"\t* {problem_bq_table.num_rows} problem entries identified "
-                  f"and removed to {table.table_id}_problems")
+                  f"and removed to {table.table_id}_fdm_problems")
 
             src_table_sql = f"""
                 SELECT * EXCEPT(problem) FROM `{table.full_table_id}`

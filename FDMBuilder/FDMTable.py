@@ -52,13 +52,13 @@ class FDMTable:
         if table_exists:
             column_names = self.get_column_names()
             person_id_present = "person_id" in column_names
-            event_start_present = "event_start_date" in column_names
-            event_end_present = "event_end_date" in column_names
+            fdm_start_present = "fdm_start_date" in column_names
+            fdm_end_present = "fdm_end_date" in column_names
         else:
             person_id_present = False
-            event_start_present = False
-            event_end_present = False
-        return table_exists, person_id_present, event_start_present, event_end_present
+            fdm_start_present = False
+            fdm_end_present = False
+        return table_exists, person_id_present, fdm_start_present, fdm_end_present
         
     
     def build(self):
@@ -75,23 +75,23 @@ class FDMTable:
             print(self._build_not_completed_message)
             return None
 
-        print(f"\n3. Adding event_start_date column:")
-        event_start_added = self._add_event_start_date_to_table(
-            event_start_date_cols=None, 
-            event_start_date_format=None,
+        print(f"\n3. Adding fdm_start_date column:")
+        fdm_start_added = self._add_fdm_start_date_to_table(
+            fdm_start_date_cols=None, 
+            fdm_start_date_format=None,
             user_input=True
         )
-        if not event_start_added:
+        if not fdm_start_added:
             print(self._build_not_completed_message)
             return None
 
-        print(f"\n4. Adding event_end_date column:")
-        event_end_added = self._add_event_end_date_to_table(
-            event_end_date_cols=None, 
-            event_end_date_format=None,
+        print(f"\n4. Adding fdm_end_date column:")
+        fdm_end_added = self._add_fdm_end_date_to_table(
+            fdm_end_date_cols=None, 
+            fdm_end_date_format=None,
             user_input=True
         )
-        if not event_start_added:
+        if not fdm_start_added:
             print(self._build_not_completed_message)
             return None
 
@@ -99,27 +99,27 @@ class FDMTable:
         print(f"\t ##### BUILD PROCESS FOR {self.table_id} COMPLETE! #####\n")
     
     
-    def quick_build(self, event_start_date_cols, event_start_date_format,
-                    event_end_date_cols=None, event_end_date_format=None,
+    def quick_build(self, fdm_start_date_cols, fdm_start_date_format,
+                    fdm_end_date_cols=None, fdm_end_date_format=None,
                     verbose=True):
         
         if verbose:
             print(f"Building {self.table_id}:")
         self.copy_table_to_dataset(verbose=verbose)
         self._add_person_id_to_table(verbose=verbose)
-        self._add_event_start_date_to_table(
-            event_start_date_cols,
-            event_start_date_format,
+        self._add_fdm_start_date_to_table(
+            fdm_start_date_cols,
+            fdm_start_date_format,
             verbose=verbose
         )
-        if event_end_date_cols is not None:
-            self._add_event_end_date_to_table(
-                event_end_date_cols,
-                event_end_date_format,
+        if fdm_end_date_cols is not None:
+            self._add_fdm_end_date_to_table(
+                fdm_end_date_cols,
+                fdm_end_date_format,
                 verbose=verbose
             )
         else:
-            print("    no event_end_date info provided")
+            print("    no fdm_end_date info provided")
         print("Done.")
     
     
@@ -253,7 +253,6 @@ class FDMTable:
             response = input(f"""
     No identifier columns found! FDM process requires a person_id column 
     in each table -  or  a digest/EDRN column to be able to link  person_ids.
-
     person_id/digest/EDRN columns may be present under a different name - do any 
     of the following colums contain digests or EDRNs? 
     (Note: identifiers are case sensitive)
@@ -277,8 +276,7 @@ class FDMTable:
                     response = input(f"""
     Response needs to match one of person_id, digest or EDRN and is 
     case-sensitive.
-    > Response:
-                    """)
+    > Response: """)
                 self.rename_columns({miss_named_id_col: response})
         
         if "person_id" in self.get_column_names():
@@ -300,7 +298,7 @@ class FDMTable:
             return True
             
             
-    def _get_event_date_df(self, date_cols, yearfirst, dayfirst):
+    def _get_fdm_date_df(self, date_cols, yearfirst, dayfirst):
 
         table = CLIENT.get_table(self.full_table_id)
         col_data = {field.name: field.field_type 
@@ -367,7 +365,7 @@ class FDMTable:
             run_sql_query(add_uuid_sql, destination=self.full_table_id)
 
         yearfirst, dayfirst = date_format_settings[date_format]
-        dates_df = self._get_event_date_df(date_cols, 
+        dates_df = self._get_fdm_date_df(date_cols, 
                                            yearfirst=yearfirst,
                                            dayfirst=dayfirst)
         
@@ -397,22 +395,22 @@ class FDMTable:
         return True
     
     
-    def _add_event_start_date_to_table(self, event_start_date_cols, 
-                                       event_start_date_format, 
+    def _add_fdm_start_date_to_table(self, fdm_start_date_cols, 
+                                       fdm_start_date_format, 
                                        user_input=False, verbose=False):
         
-        if "event_start_date" in self.get_column_names():
+        if "fdm_start_date" in self.get_column_names():
             if not user_input:
                 if verbose:
-                    print(f"    event_start_date column already present")
+                    print(f"    fdm_start_date column already present")
                 return None
             response = input(f"""
-    event_start_date column is already present.
+    fdm_start_date column is already present.
     
-    You can continue with the existing event_start_date column or rebuild
-    a new event_start_date_column from scratch.
+    You can continue with the existing fdm_start_date column or rebuild
+    a new fdm_start_date_column from scratch.
     
-    Continue with existing event_start_date? 
+    Continue with existing fdm_start_date? 
     > Type y or n: """)
             while response not in ["y", "n"]:
                 response = input("    Your response didn't match y or n.\n"
@@ -420,7 +418,7 @@ class FDMTable:
             if response == "y":
                 return True
             else:
-                self.drop_column("event_start_date")
+                self.drop_column("fdm_start_date")
         
         if user_input:
             single_col_y_n = input(f"""
@@ -428,46 +426,42 @@ class FDMTable:
     information should be contained within one or more columns of your table. 
     If unsure a quick look at the table data in BigQuery should clarify.
     
-    To start, is the event start data found in one column that can be easily 
+    Is the event start date found in one column that can be easily 
     parsed with a day, month and year?
     > Type y or n """)
             while single_col_y_n not in ["y", "n"]:
                 single_col_y_n = input("    Your response didn't match y or n.\n"
                                        "    > Try again: ")
             if single_col_y_n == "y":
-                event_start_date_cols = input("""
+                fdm_start_date_cols = input("""
     Which column contains the event start date?
     > Type the name (case sensitive): """)
-                while event_start_date_cols not in self.get_column_names():
-                    event_start_date_cols = input(f"""
-    {event_start_date_cols} doesn't match any of the columns in {self.table_id}"
+                while fdm_start_date_cols not in self.get_column_names():
+                    fdm_start_date_cols = input(f"""
+    {fdm_start_date_cols} doesn't match any of the columns in {self.table_id}"
     > Try again: """)
-                event_start_date_format = input("""
+                fdm_start_date_format = input("""
     What format does the date appear in YMD/YDM/DMY/MDY?
     > Type one: """)
-                while event_start_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
-                    event_start_date_cols = input("""
+                while fdm_start_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
+                    fdm_start_date_cols = input("""
     Response must be one of YMD/YDM/DMY/MDY."
     > Try again: """)
             else:
                 year = input("""
     We'll build the event start date beginning with the year. Where can the
     year information be found?
-
     Your response can be the name of a column that contains the year (year only,
     other formats can't be parsed) or a static value (e.g. 2022).
-
     If the year information isn't contained in one column, type quit as your 
     response, add a column with the year information and then re-run .build(). 
     You may find the .add_column() method useful for this.
-
     > Response: """)
                 if year == "quit":
                     return False
                 month = input("""
     And now we'll move onto the month. The same guidance as above applies.
     Remebmer, a static value like 02, or Feb, or February is acceptable.
-
     Where can the event start month be found?
     > Response:  """)
                 if month == "quit":
@@ -479,18 +473,18 @@ class FDMTable:
     > Response: """)
                 if day == "quit":
                     return False
-                event_start_date_cols = [year, month, day]
-                event_start_date_format = "YMD"
-                print("\n    adding event_start_date_column...")
+                fdm_start_date_cols = [year, month, day]
+                fdm_start_date_format = "YMD"
+                print("\n    adding fdm_start_date_column...")
                 
         dates_parsed = self._add_parsed_date_to_table(
-            date_cols=event_start_date_cols,  
-            date_format=event_start_date_format,  
-            date_column_name="event_start_date"
+            date_cols=fdm_start_date_cols,  
+            date_format=fdm_start_date_format,  
+            date_column_name="fdm_start_date"
         )
         if dates_parsed:
             if user_input or verbose:
-                print("    event_start_date column added")
+                print("    fdm_start_date column added")
             return True
         elif user_input:
             print("""
@@ -499,25 +493,23 @@ class FDMTable:
     you notice any errors. Otherwise, seek help from the CYP data team.""")
             return False
         else:
-            raise ValueError("event_start_dates couldn't be parsed - all values None")
+            raise ValueError("fdm_start_dates couldn't be parsed - all values None")
         
         
-    def _add_event_end_date_to_table(self, event_end_date_cols, 
-                                     event_end_date_format, 
+    def _add_fdm_end_date_to_table(self, fdm_end_date_cols, 
+                                     fdm_end_date_format, 
                                      user_input=False, verbose=False):
         
-        if "event_end_date" in self.get_column_names():
+        if "fdm_end_date" in self.get_column_names():
             if not user_input:
                 if verbose:
-                    print(f"    event_start_date column already present")
+                    print(f"    fdm_start_date column already present")
                 return None
             response = input("""
-    event_end_date column is already present.
-
-    You can continue with the existing event_end_date column or rebuild a new 
-    event_end_date_column from scratch.
-
-    Continue with existing event_end_date?
+    fdm_end_date column is already present.
+    You can continue with the existing fdm_end_date column or rebuild a new 
+    fdm_end_date_column from scratch.
+    Continue with existing fdm_end_date?
     > Type y or n: """)
             while response not in ["y", "n"]:
                 response = input("\n    Your response didn't match y or n."
@@ -525,33 +517,30 @@ class FDMTable:
             if response == "y":
                 return True
             else:
-                self.drop_column("event_end_date")
+                self.drop_column("fdm_end_date")
         
         if user_input: 
-            has_event_end_date = input("""
+            has_fdm_end_date = input("""
     An event end date may or may not be relevant to this source data. For example, 
     hospital visits or academic school years have an end date as well as a start 
     date.
-
     If you're unsure weather or not the source data should include an event end 
     date, seek help from the CYP data team."
-
     Does this data have an event end date?"
     > Type y or n: """)
             
-            while has_event_end_date not in ["y", "n"]:
-                has_event_end_date = input("\n    Your response didn't match y or n."
+            while has_fdm_end_date not in ["y", "n"]:
+                has_fdm_end_date = input("\n    Your response didn't match y or n."
                                        "\n    > Try again: ")
                 
-            if not has_event_end_date == "y":
+            if not has_fdm_end_date == "y":
                 return True
             
             single_col_y_n = input("""
     The process will now proceed in exactly the same way as with the event start 
     date. Refer to the guidance above if at all unsure about the responses to any
     of the following questions.
-
-    Is the event end data found in one column that can be easily parsed with a 
+    Is the event end date found in one column that can be easily parsed with a 
     day, month and year?
     > Type y or n: """)
             while single_col_y_n not in ["y", "n"]:
@@ -559,19 +548,19 @@ class FDMTable:
                                        "\n    > Try again: ")
                 
             if single_col_y_n == "y":
-                event_end_date_cols = input(
+                fdm_end_date_cols = input(
                     "\n    Which column contains the event end date."
                     "\n    > Type the name (case sensitive): "
                 )
-                while event_end_date_cols not in self.get_column_names():
-                    event_end_date_cols = input(f"""
-    {event_end_date_cols} doesn't match any of the columns in {self.table_id}"
+                while fdm_end_date_cols not in self.get_column_names():
+                    fdm_end_date_cols = input(f"""
+    {fdm_end_date_cols} doesn't match any of the columns in {self.table_id}"
     > Try again: """)
-                event_end_date_format = input("""
+                fdm_end_date_format = input("""
     What format does the date appear in? YMD/YDM/DMY/MDY
     > type one: """)
-                while event_end_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
-                    event_end_date_cols = input("""
+                while fdm_end_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
+                    fdm_end_date_cols = input("""
     Response must be one of YMD/YDM/DMY/MDY.
     > Try again: """)
             else:
@@ -590,17 +579,17 @@ class FDMTable:
     > Response: """)
                 if year == "quit":
                     return False
-                event_end_date_cols = [year, month, day]
-                event_end_date_format = "YMD"
+                fdm_end_date_cols = [year, month, day]
+                fdm_end_date_format = "YMD"
                 
         dates_parsed = self._add_parsed_date_to_table(
-            date_cols=event_end_date_cols,  
-            date_format=event_end_date_format,  
-            date_column_name="event_end_date"
+            date_cols=fdm_end_date_cols,  
+            date_format=fdm_end_date_format,  
+            date_column_name="fdm_end_date"
         )
         if dates_parsed:
             if user_input or verbose:
-                print("    event_end_date column added")
+                print("    fdm_end_date column added")
                 return True
         elif user_input:
             print("""
@@ -609,4 +598,4 @@ class FDMTable:
     you notice any errors. Otherwise, seek help from the CYP data team. """)
             return False
         else:
-            raise ValueError("event_end_dates couldn't be parsed - all values None")
+            raise ValueError("fdm_end_dates couldn't be parsed - all values None")
