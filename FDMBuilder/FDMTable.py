@@ -355,7 +355,6 @@ class FDMTable:
     person_id/digest/EDRN columns may be present under a different name - do any 
     of the following colums contain digests or EDRNs? 
     (Note: identifiers are case sensitive)
-    
     {col_names_list_string}
     
     If so, type the column in question. If not, type n.
@@ -376,11 +375,12 @@ class FDMTable:
     Response needs to match one of person_id, digest or EDRN and is 
     case-sensitive.
     > Response: """)
+                print("\n")
                 self.rename_columns({miss_named_id_col: response})
         
         if "person_id" in self.get_column_names():
             if user_input or verbose:
-                print(f"    {self.table_id} already contains person_id column")
+                print(f"\n    {self.table_id} already contains person_id column")
             return True
         else:
             identifier = [col for col in self.get_column_names()
@@ -393,7 +393,7 @@ class FDMTable:
             """
             run_sql_query(sql, destination=self.full_table_id)
             if user_input or verbose:
-                print("\n    person_id column added")
+                print("    person_id column added")
             return True
             
             
@@ -526,7 +526,8 @@ class FDMTable:
     If unsure a quick look at the table data in BigQuery should clarify.
     
     Is the event start date found in one column that can be easily 
-    parsed with a day, month and year?
+    parsed with a day, month and year? (The parser is pretty good at understanding
+    most formats, including month names rather than numbers)
     > Type y or n """)
             while single_col_y_n not in ["y", "n"]:
                 single_col_y_n = input("    Your response didn't match y or n.\n"
@@ -548,19 +549,23 @@ class FDMTable:
     > Try again: """)
             else:
                 year = input("""
-    We'll build the event start date beginning with the year. Where can the
-    year information be found?
-    Your response can be the name of a column that contains the year (year only,
-    other formats can't be parsed) or a static value (e.g. 2022).
-    If the year information isn't contained in one column, type quit as your 
+    We'll build the event start date beginning with identifying the year.  
+    Your response can be the name of a column that contains the year - it must be 
+    the year only, other formats like Apr-2020 can't be parsed.  Otherwise static 
+    values are accepted i.e. you can type `2022` and the year will be parsed as 
+    2022 in every date.
+    
+    If the year information isn't contained in one column, type `quit` as your 
     response, add a column with the year information and then re-run .build(). 
     You may find the .add_column() method useful for this.
+    
+    Where can the year information be found?
     > Response: """)
                 if year == "quit":
                     return False
                 month = input("""
     And now we'll move onto the month. The same guidance as above applies.
-    Remebmer, a static value like 02, or Feb, or February is acceptable.
+    Remebmer, a static value like 02, or `Feb`, or `February` is acceptable.
     Where can the event start month be found?
     > Response:  """)
                 if month == "quit":
@@ -583,7 +588,7 @@ class FDMTable:
         )
         if dates_parsed:
             if user_input or verbose:
-                print("    fdm_start_date column added")
+                print("\n\n    fdm_start_date column added")
             return True
         elif user_input:
             print("""
@@ -623,8 +628,10 @@ class FDMTable:
     An event end date may or may not be relevant to this source data. For example, 
     hospital visits or academic school years have an end date as well as a start 
     date.
+    
     If you're unsure weather or not the source data should include an event end 
     date, seek help from the CYP data team."
+    
     Does this data have an event end date?"
     > Type y or n: """)
             
@@ -639,6 +646,7 @@ class FDMTable:
     The process will now proceed in exactly the same way as with the event start 
     date. Refer to the guidance above if at all unsure about the responses to any
     of the following questions.
+    
     Is the event end date found in one column that can be easily parsed with a 
     day, month and year?
     > Type y or n: """)
