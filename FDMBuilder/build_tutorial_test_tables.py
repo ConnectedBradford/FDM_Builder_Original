@@ -52,6 +52,7 @@ test_table_1["start_date"] = test_table_1.start_date.apply(
 test_table_1.loc[30:34,"start_date"] = np.nan
 
 test_table_1 = test_table_1[["person_id", "start_date"]]
+test_table_1["some_data"] = np.random.choice(range(100000), 100)
 test_table_1.to_gbq(destination_table="CY_FDM_BUILDER_TESTS.test_table_1",
                     project_id="yhcr-prd-phm-bia-core",
                     if_exists="replace")
@@ -127,9 +128,80 @@ test_table_2["end_month"] = test_table_2.end_date.apply(
 test_table_2["end_year"] = test_table_2.end_date.apply(
     lambda x: x.year
 )
-test_table_2.rename({"digest":"digest_with_wrong_name"}, axis=1, inplace=True)
+test_table_2.rename({"digest":"wrong_digest"}, axis=1, inplace=True)
 test_table_2 = test_table_2[["wrong_digest", "start_month", "start_year", 
                              "end_month", "end_year"]]
+test_table_2["some_data"] = np.random.choice(range(100000), 100)
 test_table_2.to_gbq(destination_table="CY_FDM_BUILDER_TESTS.test_table_2",
+                    project_id="yhcr-prd-phm-bia-core",
+                    if_exists="replace")
+
+persons_3_sql = """
+    SELECT demo.EDRN, person.birth_datetime, person.death_datetime
+    FROM `CY_FDM_MASTER.person` person
+    INNER JOIN `CY_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
+    ON demo.person_id = person.person_id
+    WHERE EDRN IS NOT NULL
+    LIMIT 50
+"""
+persons_3 = CLIENT.query(persons_3_sql).to_dataframe()
+
+dead_persons_3_sql = """
+    SELECT demo.EDRN, person.birth_datetime, person.death_datetime
+    FROM `CY_FDM_MASTER.person` person
+    INNER JOIN `CY_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
+    ON demo.person_id = person.person_id
+    WHERE EDRN IS NOT NULL
+    AND death_datetime IS NOT NULL
+    LIMIT 50
+"""
+dead_persons_3 = CLIENT.query(dead_persons_3_sql).to_dataframe()
+
+test_table_3 = persons_3.append(dead_persons_3).reset_index(drop=True)
+
+test_table_3.loc[10:14, "digest"] = [f"fake_EDRN_{i}" for i in range(1,6)]
+
+test_table_3["start_date"] = test_table_3.birth_datetime.apply(add_random_days)
+
+test_table_3.loc[40:59,"start_date"] = (test_table_3
+                                        .loc[40:59,"birth_datetime"]
+                                        .apply(
+                                            lambda x: sub_random_days(x, upper=300)
+                                        ))
+
+test_table_3.loc[65:69,"start_date"] = (test_table_3
+                                        .loc[65:69,"birth_datetime"]
+                                        .apply(
+                                            lambda x: sub_random_days(x, upper=3000)
+                                        ))
+
+test_table_3.loc[80:84,"start_date"] = (test_table_3
+                                        .loc[80:84,"death_datetime"]
+                                        .apply(
+                                            lambda x: add_random_days(x, upper=3000)
+                                        ))
+test_table_3["end_date"] = test_table_3.start_date.apply(
+    lambda x: add_random_days(x, upper=20)
+)
+test_table_3.loc[30:34, "end_date"] = (test_table_3
+                                       .loc[30:34, "start_date"]
+                                       .apply(
+                                           lambda x: sub_random_days(x, 60)
+                                       ))
+test_table_3.loc[90:94, "end_date"] = (test_table_3
+                                       .loc[90:94, "death_datetime"]
+                                       .apply(add_random_days))
+
+test_table_3["examination_period"] = test_table_3.apply(
+    lambda x: (x.start_date.month_name()[:3] + "/" + str(x.start_date.year)
+               + "-"
+               + x.end_date.month_name()[:3] + "/" + str(x.end_date.year)),
+    axis=1
+)
+test_table_3["some_data"] = np.random.choice(range(100000), 100)
+test_table_3.rename({"EDRN":"education_reference"}, axis=1, inplace=True)
+test_table_3.drop(["birth_datetime", "death_datetime", "digest", "start_date", "end_date"], 
+                  axis=1, inplace=True)
+test_table_3.to_gbq(destination_table="CY_FDM_BUILDER_TESTS.test_table_3",
                     project_id="yhcr-prd-phm-bia-core",
                     if_exists="replace")
