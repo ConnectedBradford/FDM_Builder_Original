@@ -34,6 +34,8 @@ class FDMTable:
         if not check_dataset_exists(dataset_id):
             raise ValueError(f"Dataset {dataset_id} doesn't exist - double check spelling and GCP then try again")
         self.source_table_full_id = source_table_id
+        if len(dataset_id.split(".")) == 2:
+            dataset_id = dataset_id.split(".")[-1]
         self.dataset_id = dataset_id
         table_alias = source_table_id.split(".")[-1]
         self.table_id = table_alias
