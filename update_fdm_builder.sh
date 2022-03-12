@@ -2,7 +2,7 @@
 
 cd ~
 sudo rm -rf /home/jupyter/cy_fdm_builder
-sudo pip uninstall FDMBuilder -y
+pip uninstall FDMBuilder -y
 git clone https://github.com/yhcr-samrelins/cy_fdm_builder.git /home/jupyter/cy_fdm_builder
 cd /home/jupyter/cy_fdm_builder/
 python setup.py bdist_wheel
