@@ -382,7 +382,7 @@ class FDMTable:
         
         if "person_id" in self.get_column_names():
             if user_input or verbose:
-                print(f"\n    {self.table_id} already contains person_id column")
+                print(f"    {self.table_id} already contains person_id column")
             return True
         else:
             identifier = [col for col in self.get_column_names()
@@ -590,7 +590,7 @@ class FDMTable:
         )
         if dates_parsed:
             if user_input or verbose:
-                print("\n\n    fdm_start_date column added")
+                print("    fdm_start_date column added")
             return True
         elif user_input:
             print("""
