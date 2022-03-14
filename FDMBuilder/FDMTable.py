@@ -346,7 +346,7 @@ class FDMTable:
         if not identifiers_in_src:
             if not user_input:
                 raise ValueError(
-                    f"None of {correct_identifiers} in table columns"
+                    f"None of person_id, digest, or EDRN in table columns"
                 )
             col_names_list_string = "".join(
                 ["\n\t\t" + name for name in self.get_column_names()]

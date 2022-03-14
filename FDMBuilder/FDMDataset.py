@@ -60,7 +60,10 @@ class FDMDataset:
         fdm_src_tables = []
         build_ready = True
         for table in CLIENT.list_tables(self.dataset_id):
-            if table.table_id in standard_tables or "fdm_problems" in table.table_id:
+            is_standard_table = table.table_id in standard_tables
+            is_problem_table = "fdm_problems" in table.table_id
+            is_data_dict = "data_dict" in table.table_id
+            if is_standard_table or is_problem_table or is_data_dict:
                 continue
             fdm_table = FDMTable(
                 source_table_id = (f"{self.dataset_id}.{table.table_id}"),
@@ -78,17 +81,9 @@ class FDMDataset:
     dataset build.
                 """)
                 build_ready = False
-            elif has_problem_table:
-                print(f"""
-    {table.table_id}_fdm_problems found in {self.dataset_id}:
-    
-    Source tables need to be re-combined with problem entries before the 
-    dataset build process can be executed. Run FDMTable.recombine() to add 
-    the problem entries back into {table.table_id} and then re-run the 
-    dataset build.
-                """)
-                build_ready = False
             else:
+                if has_problem_table:
+                    fdm_table.recombine()
                 fdm_end = ' fdm_end_date' if has_fdm_end else ''
                 print(f"    * {table.table_id} contains: "
                       f" - person_id - fdm_start_date {fdm_end}"
