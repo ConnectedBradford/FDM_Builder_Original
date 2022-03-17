@@ -22,17 +22,29 @@ class FDMTable:
     
     def __init__(self, source_table_id, dataset_id):
             
-        if len(source_table_id.split(".")) < 2:
-            raise ValueError( 
-                "source_table_id must include dataset_id i.e. `dataset_id.table_id`" 
-            )
-        elif len(source_table_id.split(".")) == 2: 
+        if len(source_table_id.split(".")) == 2: 
             source_table_id = f"{PROJECT}." + source_table_id
             
         if not check_table_exists(source_table_id):
-            raise ValueError(f"{source_table_id} doesn't exist - double check spelling and GCP then try again")
+            raise ValueError(f"""
+    {source_table_id} doesn't exist. Be sure to include the dataset id 
+    (i.e. DATASET.TABLE) and double check spelling is correct.
+            """)
+            
         if not check_dataset_exists(dataset_id):
-            raise ValueError(f"Dataset {dataset_id} doesn't exist - double check spelling and GCP then try again")
+            raise ValueError(f"""
+    Dataset {dataset_id} doesn't exist. Double check spelling and GCP then 
+    try again.
+            """)
+            
+        if dataset_id == source_table_id.split(".")[1]:
+            raise ValueError("""
+    The dataset_id specified contains the original source table. FDMTable builds 
+    must be performed in a fresh dataset to maintain an unchanged copy of the 
+    original source table. Create an empty dataset in which to build your FDM, 
+    and re-initialise the FDMTable using this dataset.
+            """)
+                             
         self.source_table_full_id = source_table_id
         if len(dataset_id.split(".")) == 2:
             dataset_id = dataset_id.split(".")[-1]
@@ -385,8 +397,10 @@ class FDMTable:
                 print(f"    {self.table_id} already contains person_id column")
             return True
         else:
-            identifier = [col for col in self.get_column_names()
-                          if col in ["digest", "EDRN"]][0]
+            if "digest" in self.get_column_names():
+                identifier = "digest"
+            else:
+                identifier = "EDRN" 
             sql = f"""
                 SELECT demo.person_id, src.*
                 FROM `{self.full_table_id}` src

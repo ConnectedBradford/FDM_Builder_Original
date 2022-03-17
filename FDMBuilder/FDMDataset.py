@@ -15,7 +15,7 @@ class FDMDataset:
                   "run .create_dataset()")
     
     
-    def build(self):
+    def build(self, includes_pre_natal=False):
         
         print(f"\t\t ##### BUILDING FDM DATASET {self.dataset_id} #####")
         print("_" * 80 + "\n")
@@ -32,7 +32,7 @@ class FDMDataset:
         print("\n2. Building person table\n")
         self._build_person_table()
         print("3. Separating out problem entries from source tables\n")
-        self._split_problem_entries_from_src_tables()
+        self._split_problem_entries_from_src_tables(includes_pre_natal)
         print("\n4. Rebuilding person table\n")
         self._build_person_table()
         print("5. Building observation_period table\n")
@@ -164,7 +164,7 @@ class FDMDataset:
             print(f"    * {table.table_id}_data_dict built")
         
         
-    def _add_problem_entries_column_to_table(self, table):
+    def _add_problem_entries_column_to_table(self, table, includes_pre_natal):
 
         if "fdm_problem" in table.get_column_names():
             print(f"\tfdm_problem column already exists in {table.table_id}."
@@ -188,17 +188,6 @@ class FDMDataset:
             )
         """
         no_fdm_start_date = "fdm_start_date is NULL"
-        fdm_start_in_pre_natal_period = f"""
-            EXISTS(
-                SELECT birth_datetime
-                FROM `{self.person_table_id}` AS person
-                WHERE src.person_id = person.person_id 
-                    AND src.fdm_start_date < person.birth_datetime
-                    AND DATETIME_ADD(
-                        src.fdm_start_date, 
-                        INTERVAL 300 DAY) >= person.birth_datetime
-            )
-        """       
         fdm_start_before_pre_natal_period = f"""
             EXISTS(
                 SELECT birth_datetime
@@ -224,8 +213,6 @@ class FDMDataset:
             "person_id isn't in master person table": person_id_not_in_master,
             "person has no bith_datetime in master person table": person_has_no_dob,
             "Entry has no fdm_start_date": no_fdm_start_date,
-            "fdm_start_date is before person birth_datetime - Note: Within pre-natal period": 
-            fdm_start_in_pre_natal_period,
             "fdm_start_date is before person birth_datetime": 
             fdm_start_before_pre_natal_period,
             "fdm_start_date is after death_datetime (+42 days)": 
@@ -265,6 +252,21 @@ class FDMDataset:
                 "fdm_end_date is after person death_datetime"
             ] = fdm_end_after_death
 
+        if not includes_pre_natal:
+            fdm_start_in_pre_natal_period = f"""
+                EXISTS(
+                    SELECT birth_datetime
+                    FROM `{self.person_table_id}` AS person
+                    WHERE src.person_id = person.person_id 
+                        AND src.fdm_start_date < person.birth_datetime
+                        AND DATETIME_ADD(
+                            src.fdm_start_date, 
+                            INTERVAL 300 DAY) >= person.birth_datetime
+                )
+            """       
+            messages_with_problem_cases[
+                "fdm_start_date is before person birth_datetime - Note: Within pre-natal period" 
+            ] = fdm_start_in_pre_natal_period
 
         problem_col_cases = ("CASE " + " ".join([
             f'WHEN {problem_sql} THEN "{problem_text}"'
@@ -280,13 +282,13 @@ class FDMDataset:
         run_sql_query(problem_tab_sql, destination=table.full_table_id)
             
             
-    def _split_problem_entries_from_src_tables(self):
+    def _split_problem_entries_from_src_tables(self, includes_pre_natal):
 
 
         for table in self.tables:
 
             print(f"    {table.table_id}:")
-            self._add_problem_entries_column_to_table(table)
+            self._add_problem_entries_column_to_table(table, includes_pre_natal)
             problem_table_sql = f"""
                 SELECT * FROM `{table.full_table_id}`
                 WHERE fdm_problem != "No problem"
