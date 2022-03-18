@@ -18,25 +18,45 @@ MASTER_PERSON = f"{PROJECT}.CY_FDM_MASTER.person"
 
     
 class FDMTable:
+    """A Tool for preparing individual source tables for FDM build
+    
+    Primary function is to ensure table has 3 basic features:
+    
+    1. A person_id column
+    2. An Event start date - parsed into a DATETIME
+    3. An Event end date (if required) - also parsed
+    
+    Also includes a number of helper functions to facilitate the process
+    of readying a table to build an FDM. 
+    
+    Args:
+        source_table_id: string, id of source table in GCP. Can be in format
+            project_id.dataset_id.table_id or dataset_id.table_id
+        dataset_id: string, id of dataset in GCP where FDM is to be built
+        
+    Attributes:
+        source_table_full_id: Full id of source table in GCP
+        dataset_id = id of dataset where table is to be built in GCP
+        table_id = id of table alone i.e. without dataset/project id
+        full_table_id = id of table with project and datatset ids i.e. in
+            project_id.dataset_id.table_id format
+    """
     
     
     def __init__(self, source_table_id, dataset_id):
             
-        if len(source_table_id.split(".")) == 2: 
-            source_table_id = f"{PROJECT}." + source_table_id
-            
+        # error checks to ensure table/dataset exist and that FDMTable
+        # wont overwrite source dataset
         if not check_table_exists(source_table_id):
             raise ValueError(f"""
     {source_table_id} doesn't exist. Be sure to include the dataset id 
     (i.e. DATASET.TABLE) and double check spelling is correct.
             """)
-            
         if not check_dataset_exists(dataset_id):
             raise ValueError(f"""
     Dataset {dataset_id} doesn't exist. Double check spelling and GCP then 
     try again.
             """)
-            
         if dataset_id == source_table_id.split(".")[1]:
             raise ValueError("""
     The dataset_id specified contains the original source table. FDMTable builds 
@@ -44,7 +64,11 @@ class FDMTable:
     original source table. Create an empty dataset in which to build your FDM, 
     and re-initialise the FDMTable using this dataset.
             """)
-                             
+        # add project_id to source_table_id if not already included - GCP
+        # SQL engine will sometimes throw errors if project_id not specified
+        # in queries
+        if len(source_table_id.split(".")) == 2: 
+            source_table_id = f"{PROJECT}." + source_table_id
         self.source_table_full_id = source_table_id
         if len(dataset_id.split(".")) == 2:
             dataset_id = dataset_id.split(".")[-1]
@@ -60,9 +84,12 @@ class FDMTable:
             f"\tresolved the issues preventing the build from completing."
         )
         
-        
     def _check_table_exists_in_dataset(func):
+        """Decorator Function - ensures a copy of dataset exists
         
+        Used when helper functions require a copy of the source data in the FDM
+        dataset to work.
+        """
         def return_fn(self, *args, **kwargs):
             if not check_table_exists(self.full_table_id):
                 raise ValueError(f"""
@@ -73,9 +100,22 @@ class FDMTable:
                 
         return return_fn
     
-    
     def _check_problems_table_doesnt_exist(func):
+        """Decorator Function - ensures a problems table doesn't exist
         
+        Problems tables contain entries from the source data
+        that have been removed from the main table because of "problems" with 
+        the respective entires e.g. entry might be dated before the birth
+        date of the person, might be missing a person_id etc. Several helper
+        functions perform manipulations, adding/removing columns etc. If these 
+        the main table is manipulated without corresponding manipulation of the 
+        problems table, it wouldn't then be possible to merge/union the tables 
+        whilst FDM building. 
+        
+        This helper enforces the requirement that only a  complete table be 
+        manipulated i.e. a table that has been "recombined" or  that doesn't 
+        have an associated  problems table.
+        """
         def return_fn(self, *args, **kwargs):
             if check_table_exists(self.full_table_id + "_fdm_problems"):
                 raise ValueError(f"""
@@ -88,8 +128,20 @@ class FDMTable:
                 
         return return_fn
         
-    
     def check_build(self, verbose=True):
+        """Checks all necessary parts of Table build have been completed
+        
+        Used to ensure a table is ready before building the FDM datset. Checks
+        that: 
+        1. a copy of the table exists in the dataset
+        2. the table has a person_id column
+        3. the table has an fdm_start_date column
+        4. the table has an fdm_end_date column
+        5. if there's a corresponding problems table in the dataset
+        
+        Returns:
+            A tuple of boolean values representing the 5 checks above
+        """
         table_exists = check_table_exists(self.full_table_id)
         if table_exists:
             column_names = self.get_column_names()
