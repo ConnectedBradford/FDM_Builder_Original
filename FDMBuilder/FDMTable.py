@@ -166,7 +166,9 @@ class FDMTable:
         print("_" * 80 + "\n")
 
         print(f"1. Copying {self.table_id} to {self.dataset_id}:")
-        self.copy_table_to_dataset(user_input=True)
+        overwrite_existing = self._inputs_for_copy_table_to_dataset() 
+        self.copy_table_to_dataset(overwrite_existing=overwrite_existing,
+                                   verbose=True)
 
         print(f"\n2. Adding person_id column:")
         person_id_added = self._add_person_id_to_table(user_input=True)
@@ -310,77 +312,40 @@ class FDMTable:
                             progress_bar=False)
     
     
-    def copy_table_to_dataset(self, user_input=False, verbose=False):
+    def copy_table_to_dataset(self, overwrite_existing=False, verbose=False):
         
         src_copy_exists = check_table_exists(self.full_table_id)
         
-        if not user_input:
-            if src_copy_exists:
-                if verbose:
-                    print(f"    existing copy of {self.table_id} in " 
-                          f"{self.dataset_id}")
-                return None
-            else:
-                sql = f"""
-                    SELECT * 
-                    FROM `{self.source_table_full_id}`
-                """
-                run_sql_query(sql, destination=self.full_table_id)
-                if verbose:
-                    print(f"    {self.table_id} copied to {self.dataset_id}")
-                return None
+        if src_copy_exists and not overwrite_existing:
+            if verbose:
+                print(f"    using existing copy of {self.table_id} in " 
+                      f"{self.dataset_id}")
+            return None
         else:
-                    
-            fresh_copy = True
-            if src_copy_exists:
-                response = input(f"""
-    A copy of {self.table_id} already exists in {self.dataset_id}. 
-    You can continue with the existing {self.table_id} table in {self.dataset_id}
-    or make a fresh copy from the source dataset."   
-    
-    Continue with existing copy?
-    > Type y or n: """)
-                while response not in ["y", "n"]:
-                    response = input("\n\tYour response didn't match y or n."
-                                     "\n\t> Try again: ")
-                if response == "y":
-                    fresh_copy = False
-
-            if fresh_copy:
-                sql = f"""
-                    SELECT * 
-                    FROM `{self.source_table_full_id}`
-                """
-                try:
-                    run_sql_query(sql, destination=self.full_table_id)
-                    print(f"\n    Table {self.table_id} copied to "
-                          f"{self.dataset_id}!")
-                except Exception as ex:
-                    print(f"""
-    Looks like something went wrong! Likely culprits are:"
-    
-    1. You misspelled either the source table location or dataset id: 
-    
-        Source table location - "{self.source_table_full_id}" 
-        Dataset id - "{self.dataset_id}" 
+            sql = f"""
+                SELECT * 
+                FROM `{self.source_table_full_id}`
+            """
+            run_sql_query(sql, destination=self.full_table_id)
+            if verbose:
+                print(f"    {self.table_id} copied to {self.dataset_id}")
+            return None
+            
+            
+    def _inputs_for_copy_table_to_dataset(self): 
         
-    If so, just correct the spelling error and then re-initialise.
-    
-    2. The dataset {self.dataset_id} doesn't exist yet
-    
-    If so, and you have the relevant permissions, you can create a new dataset
-    using an FDMDataset object and .create_dataset(), or just use GCP.
-    Otherwise, if you don't have the necessary permissions, have a word with  
-    the CYP data team and have them create you a dataset.
-    
-    Note: DO NOT CONTINUE TO USE THIS PARTICULAR FDMTable INSTANCE! If you do, 
-    you're going to see a whole bunch more error messages!
-    
-    Full error message is as follows:
-                    """)
-                    raise ex
-            else:
-                print(f"\n    Continuing with existing copy of {self.table_id}")
+        response = input(f"""
+        A copy of {self.table_id} already exists in {self.dataset_id}. 
+        You can continue with the existing {self.table_id} table in {self.dataset_id}
+        or make a fresh copy from the source dataset."   
+
+        Continue with existing copy?
+        > Type y or n: """)
+        while response not in ["y", "n"]:
+            response = input("\n\tYour response didn't match y or n."
+                             "\n\t> Try again: ")
+        
+        return response == "y"
             
     
     def recombine(self):
@@ -397,25 +362,16 @@ class FDMTable:
         run_sql_query(recombine_sql, destination=self.full_table_id)
         CLIENT.delete_table(self.full_table_id + "_fdm_problems")
             
-    
-    def _add_person_id_to_table(self, user_input=False, verbose=False):
+            
+    def _check_for_identifier_columns_w_input(self):
         
-        
-        col_names = self.get_column_names()
-        
-        # find matching identifier columns and correct syntax if required
         correct_identifiers = ["person_id", "digest", "EDRN"]
         identifiers_in_src = [col for col in self.get_column_names()
                               if col in correct_identifiers] 
-        if not identifiers_in_src:
-            if not user_input:
-                raise ValueError(
-                    f"None of person_id, digest, or EDRN in table columns"
-                )
-            col_names_list_string = "".join(
-                ["\n\t\t" + name for name in self.get_column_names()]
-            )
-            response = input(f"""
+        if identifiers_in_src:
+            return True
+        
+        response = input(f"""
     No identifier columns found! FDM process requires a person_id column 
     in each table -  or  a digest/EDRN column to be able to link  person_ids.
     person_id/digest/EDRN columns may be present under a different name - do any 
@@ -425,24 +381,38 @@ class FDMTable:
     
     If so, type the column in question. If not, type n.
     > Response: """)
-            while not response in self.get_column_names() + ["n"]:
-                response = input(f"""
+        while not response in self.get_column_names() + ["n"]:
+            response = input(f"""
     Response needs to match one of the above column names (case sensitive) or n
     > Response: """)
-            if response == "n":
-                return False
-            else:
-                miss_named_id_col = response 
-                response = input(f"""
-    Does {miss_named_id_col} contain person_ids, digests or EDRNs?
-    > Type either person_id, digest or EDRN: """)
-                while response not in ["person_id", "digest", "EDRN"]:
-                    response = input(f"""
-    Response needs to match one of person_id, digest or EDRN and is 
-    case-sensitive.
-    > Response: """)
-                print("\n")
-                self.rename_columns({miss_named_id_col: response})
+        if response == "n":
+            return False
+        miss_named_id_col = response 
+        response = input(f"""
+Does {miss_named_id_col} contain person_ids, digests or EDRNs?
+> Type either person_id, digest or EDRN: """)
+        while response not in ["person_id", "digest", "EDRN"]:
+            response = input(f"""
+Response needs to match one of person_id, digest or EDRN and is 
+case-sensitive.
+> Response: """)
+        print("\n")
+        self.rename_columns({miss_named_id_col: response})
+        
+        
+    
+    def _add_person_id_to_table(self, user_input=False, verbose=False):
+        
+        
+        # find matching identifier columns and correct syntax if required
+        if not identifiers_in_src:
+            if not user_input:
+                raise ValueError(
+                    f"None of person_id, digest, or EDRN in table columns"
+                )
+            col_names_list_string = "".join(
+                ["\n\t\t" + name for name in self.get_column_names()]
+            )
         
         if "person_id" in self.get_column_names():
             if user_input or verbose:
