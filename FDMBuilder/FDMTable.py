@@ -389,28 +389,55 @@ class FDMTable:
         for field in table.schema:
             data_dict["variable_name"].append(field.name)
             data_dict["data_type"].append(field.field_type)
-            description_sql = f"""
-                SELECT ARRAY_AGG(DISTINCT {field.name}) AS unique_values, 
-                    COUNT(DISTINCT {field.name}) AS n
+            n_unique_values_sql = f"""
+                SELECT COUNT(DISTINCT {field.name}) AS n, 
                 FROM `{self.full_table_id}`
                 WHERE {field.name} IS NOT NULL
             """
-            description_vals = pd.read_gbq(description_sql)
-            unique_values = pd.Series(description_vals.unique_values[0])
-            if description_vals.n[0] < 20:
-                description = "Unique Values: " 
-                description += ", ".join(
-                    [str(val) for val in unique_values.sort_values()]
+            n_unique_values_df = pd.read_gbq(n_unique_values_sql)
+            n_unique_values = n_unique_values_df.n[0]
+            
+            if field.field_type in ["INTEGER", "DATETIME", "FLOAT"]:
+                data_sql = f"SELECT MIN({field.name}) AS min_val, "
+                data_sql += f"MAX({field.name}) AS max_val"
+                if field.field_type != "DATETIME":
+                    data_sql += (f", AVG({field.name}) "
+                                 "AS mean_val")
+                data_sql += f" FROM `{self.full_table_id}`"
+                data_sql += f" WHERE {field.name} IS NOT NULL"
+                data_df = pd.read_gbq(data_sql)
+                
+                description = f"{n_unique_values} Unique Values - "
+                description = f"Min: {data_df.min_val[0]}, "
+                description += f"Max: {data_df.max_val[0]}"
+                if field.field_type != "DATETIME":
+                    description += f", Mean: {data_df.mean_val[0]}, "
+            elif n_unique_values > 20:
+                unique_values_sql = f"""WITH src AS (
+                    SELECT * FROM `{self.full_table_id}`
+                    WHERE {field.name} IS NOT NULL
+                    LIMIT 1000
                 )
-            elif field.field_type in ["INTEGER", "DATETIME", "FLOAT"]:
-                description = f"{len(unique_values)} Unique Values - "
-                description = f"Min: {unique_values.min()}, "
-                description += f"Max: {unique_values.max()}, "
-                description += f"Median: {unique_values.median()}, "
-            else:
-                description = f"{len(unique_values)} Unique Values - Examples: "
+                SELECT ARRAY_AGG(DISTINCT {field.name}) AS unique_values 
+                FROM src
+                """
+                unique_values_df = pd.read_gbq(unique_values_sql)
+                values = unique_values_df.unique_values[0]
+                description = f"{n_unique_values} unique Values - Examples: " 
                 description += ", ".join(
-                    [str(val) for val in description_vals.unique_values[0][:5]]
+                    [str(val) for val in values[:5]]
+                )
+            else:
+                unique_values_sql = f"""
+                    SELECT ARRAY_AGG(DISTINCT {field.name}) AS unique_values 
+                    FROM `{self.full_table_id}`
+                    WHERE {field.name} IS NOT NULL
+                """
+                unique_values_df = pd.read_gbq(unique_values_sql)
+                values = unique_values_df.unique_values[0]
+                description = f"{n_unique_values} unique Values: " 
+                description += ", ".join(
+                    [str(val) for val in values]
                 )
             data_dict["description"].append(description)
         data_dict_df = pd.DataFrame(data_dict)
