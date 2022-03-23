@@ -371,6 +371,13 @@ class FDMTable:
             LIMIT {n}
         """
         return pd.read_gbq(sql)
+    
+    
+    @_check_table_exists_in_dataset
+    def _get_table_schema_dict(self):
+        table_schema = CLIENT.get_table(self.full_table_id).schema
+        return {field.name: field.field_type  
+                for field in table_schema}
                                                                                                           
     
     @_check_table_exists_in_dataset
@@ -380,45 +387,45 @@ class FDMTable:
         
         
         """
-        table = CLIENT.get_table(self.full_table_id)
+        schema_dict = self._get_table_schema_dict()
         data_dict = {
             "variable_name": [],
             "data_type": [],
             "description": [],
         }
-        for field in table.schema:
-            data_dict["variable_name"].append(field.name)
-            data_dict["data_type"].append(field.field_type)
+        for col_name, col_dtype in schema_dict.items():
+            data_dict["variable_name"].append(col_name)
+            data_dict["data_type"].append(col_dtype)
             n_unique_values_sql = f"""
-                SELECT COUNT(DISTINCT {field.name}) AS n, 
+                SELECT COUNT(DISTINCT {col_name}) AS n, 
                 FROM `{self.full_table_id}`
-                WHERE {field.name} IS NOT NULL
+                WHERE {col_name} IS NOT NULL
             """
             n_unique_values_df = pd.read_gbq(n_unique_values_sql)
             n_unique_values = n_unique_values_df.n[0]
             
-            if field.field_type in ["INTEGER", "DATETIME", "FLOAT"]:
-                data_sql = f"SELECT MIN({field.name}) AS min_val, "
-                data_sql += f"MAX({field.name}) AS max_val"
-                if field.field_type != "DATETIME":
-                    data_sql += (f", AVG({field.name}) "
+            if col_dtype in ["INTEGER", "DATETIME", "FLOAT"]:
+                data_sql = f"SELECT MIN({col_name}) AS min_val, "
+                data_sql += f"MAX({col_name}) AS max_val"
+                if col_dtype != "DATETIME":
+                    data_sql += (f", AVG({col_name}) "
                                  "AS mean_val")
                 data_sql += f" FROM `{self.full_table_id}`"
-                data_sql += f" WHERE {field.name} IS NOT NULL"
+                data_sql += f" WHERE {col_name} IS NOT NULL"
                 data_df = pd.read_gbq(data_sql)
                 
                 description = f"{n_unique_values} Unique Values - "
                 description = f"Min: {data_df.min_val[0]}, "
                 description += f"Max: {data_df.max_val[0]}"
-                if field.field_type != "DATETIME":
+                if col_dtype != "DATETIME":
                     description += f", Mean: {data_df.mean_val[0]}, "
             elif n_unique_values > 20:
                 unique_values_sql = f"""WITH src AS (
                     SELECT * FROM `{self.full_table_id}`
-                    WHERE {field.name} IS NOT NULL
+                    WHERE {col_name} IS NOT NULL
                     LIMIT 1000
                 )
-                SELECT ARRAY_AGG(DISTINCT {field.name}) AS unique_values 
+                SELECT ARRAY_AGG(DISTINCT {col_name}) AS unique_values 
                 FROM src
                 """
                 unique_values_df = pd.read_gbq(unique_values_sql)
@@ -429,9 +436,9 @@ class FDMTable:
                 )
             else:
                 unique_values_sql = f"""
-                    SELECT ARRAY_AGG(DISTINCT {field.name}) AS unique_values 
+                    SELECT ARRAY_AGG(DISTINCT {col_name}) AS unique_values 
                     FROM `{self.full_table_id}`
-                    WHERE {field.name} IS NOT NULL
+                    WHERE {col_name} IS NOT NULL
                 """
                 unique_values_df = pd.read_gbq(unique_values_sql)
                 values = unique_values_df.unique_values[0]
@@ -539,6 +546,9 @@ case-sensitive.
     def _add_person_id_to_table(self, user_input=False, verbose=False):
         
         
+        correct_identifiers = ["person_id", "digest", "EDRN"]
+        identifiers_in_src = [col for col in self.get_column_names()
+                              if col in correct_identifiers] 
         # find matching identifier columns and correct syntax if required
         if not identifiers_in_src:
             if not user_input:
@@ -572,15 +582,13 @@ case-sensitive.
             
     def _get_fdm_date_df(self, date_cols, yearfirst, dayfirst):
 
-        table = CLIENT.get_table(self.full_table_id)
-        col_data = {field.name: field.field_type 
-                    for field in table.schema}
+        schema_dict = self._get_table_schema_dict()
         if type(date_cols) == list and len(date_cols) == 3:
             cast_cols_sql = []
             for col in date_cols:
-                if col in col_data.keys() and col_data[col] == "STRING":
+                if col in schema_dict.keys() and schema_dict[col] == "STRING":
                     cast_cols_sql.append(col)
-                elif col in col_data.keys(): 
+                elif col in schema_dict.keys(): 
                     cast_cols_sql.append(f"CAST({col} AS STRING)")
                 else:
                     cast_cols_sql.append(f'"{col}"')
@@ -628,6 +636,11 @@ case-sensitive.
             "DMY": [False, True],
             "MDY": [False, False]
         }
+        
+        schema_dict = self._get_table_schema_dict()
+        if type(date_cols) == str and schema_dict[date_cols] in ["DATE", "DATETIME"]:
+            self.add_column(f"{date_cols} as {date_column_name}")
+            return True
 
         if "uuid" not in self.get_column_names():
             add_uuid_sql = f"""
