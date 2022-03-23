@@ -133,12 +133,12 @@ class FDMTable:
         
         Used to ensure a table is ready before building the FDM datset. Checks
         that: 
-        1. a copy of the table exists in the dataset
-        2. the table has a person_id column
-        3. the table has an fdm_start_date column
-        4. the table has an fdm_end_date column
-        5. if there's a corresponding problems table in the dataset
-        
+            1. a copy of the table exists in the dataset
+            2. the table has a person_id column
+            3. the table has an fdm_start_date column
+            4. the table has an fdm_end_date column
+            5. if there's a corresponding problems table in the dataset
+
         Returns:
             A tuple of boolean values representing the 5 checks above
         """
@@ -161,6 +161,16 @@ class FDMTable:
         
     
     def build(self):
+        """Prepares table for FDM build with prompts and user input
+        
+        No arguments required, simply run `build` and follow the instructions
+        in the console output, inputting the requested info as required. Designed
+        so build process can be cancelled (by stopping execution) and re-running
+        when ready - the script will pick up where it left off.
+        
+        Returns:
+            None - all changes occurr in GCP
+        """
         
         print(f"\t ##### BUILDING FDM TABLE COMPONENTS FOR {self.table_id} #####")
         print("_" * 80 + "\n")
@@ -203,7 +213,35 @@ class FDMTable:
     def quick_build(self, fdm_start_date_cols, fdm_start_date_format,
                     fdm_end_date_cols=None, fdm_end_date_format=None,
                     verbose=True):
-        
+        """Performs the table build process without verbose user input
+
+        Adds the 3 basic FDM table features:  1. A person_id column  2. An Event 
+        start date - parsed into a DATETIME 3. An Event end date 
+        (if required) without console input as with `build`.
+
+        Args:
+            fdm_start_date_cols: string/list, name of individual column that 
+                contains a parse-able string with day, month and year -- or -- 
+                list with  columns containing day, month and year info - list 
+                will also accept static values  e.g. "15", "Feb", "November", 
+                "2022" in the event  one of D/M/Y isn't  available and a static 
+                value will suffice e.g. setting day as 15th for each date.
+            fdm_start_date_format: string, one of "YMD" (Default), "YDM",  
+                "DMY", "MDY". Order in which day, month and year appear - required
+                for both string and list fdm_start_date_cols
+            fdm_end_date_cols: string/list, same format as fdm_start_date_cols
+                but with col(s) containing end date info. Can be None/left blank 
+                should there not be an end date (FDM process will then calculate 
+                observation periods using start date only)
+            fdm_end_date_format: string, one of "YMD" (Default), "YDM",  
+                "DMY", "MDY". Same format as fdm_start_date_format, can be 
+                None/left blank if fdm_end_date_cols is blank
+            verbose: bool (default True), controls console output showing progress 
+                of build
+                
+        Returns:
+            None - all changes occurr in GCP
+        """
         if verbose:
             print(f"Building {self.table_id}:")
         self.copy_table_to_dataset(verbose=verbose)
@@ -226,6 +264,11 @@ class FDMTable:
     
     @_check_table_exists_in_dataset
     def get_column_names(self):
+        """Lists the table's column names
+        
+        Returns: 
+            list, strings detailing each column name
+        """
         
         table = CLIENT.get_table(self.full_table_id)
         return [field.name for field in table.schema]
@@ -234,6 +277,30 @@ class FDMTable:
     @_check_table_exists_in_dataset
     @_check_problems_table_doesnt_exist
     def add_column(self, column_sql):
+        """Adds a column to the table according to user specification
+        
+        Args:
+            colunm_sql: string, a sql statement that specifies the new
+                column similar to that would see in a standard SELECT statement
+                
+        Returns:
+            None - changes occurr in GCP
+            
+        Example:
+        
+        ```python
+        # adds new column called integer_col_x_100 
+        # containing integer_col * 100 
+        my_table.add_column(
+            "integer_col * 100 AS integer_col_x_100"
+        )
+        # adds new column called string_col_first_item
+        # containing first item in string_col divided by "/"
+        my_table.add_column(
+            "SPLIT(string_col, "/")[OFFSET(0)] AS string_col_first_item"
+        )
+        ```
+        """
         sql = f"""
             SELECT *, {column_sql}
             FROM `{self.full_table_id}`
@@ -244,6 +311,14 @@ class FDMTable:
     @_check_table_exists_in_dataset
     @_check_problems_table_doesnt_exist
     def drop_column(self, column):
+        """Drops/deletes the specified column
+        
+        Args:
+            colunm: string, name of column to be deleted
+                
+        Returns:
+            None - changes occurr in GCP
+        """
         sql = f"""
             ALTER TABLE `{self.full_table_id}`
             DROP COLUMN {column}
@@ -254,6 +329,25 @@ class FDMTable:
     @_check_table_exists_in_dataset
     @_check_problems_table_doesnt_exist
     def rename_columns(self, names_map, verbose=True):
+        """Renames columns of table
+        
+        Args:
+            names_map: dict, key-value pairs are strings, keys detailing
+            current names, values the new names columns should be renamed
+            to
+                
+        Returns:
+            None - changes occurr in GCP
+            
+        Example:
+        ```python
+        # renames columns from old_name_1/2 to new_name_1/2
+        my_table.rename_columns(
+            {"old_name_1":"new_name_1,
+             "old_name_2":"new_name_2}
+        )
+        ```
+        """
         rename_columns_in_bigquery(table_id=self.full_table_id,
                                    names_map=names_map,
                                    verbose=verbose)
@@ -262,6 +356,15 @@ class FDMTable:
     @_check_table_exists_in_dataset
     @_check_problems_table_doesnt_exist
     def head(self, n=10):
+        """Displays first n rows of table as pandas dataframe
+        
+        Args:
+            n: int, number of rows from table to return
+            
+        Returns:
+            pandas.DataFrame, containing first n rows of data from
+                table
+        """
         sql = f"""
             SELECT *
             FROM `{self.full_table_id}`
@@ -272,6 +375,11 @@ class FDMTable:
     
     @_check_table_exists_in_dataset
     def build_data_dict(self):
+        """Builds starting data dictionary and uploads to GCP
+        
+        
+        
+        """
         table = CLIENT.get_table(self.full_table_id)
         data_dict = {
             "variable_name": [],
