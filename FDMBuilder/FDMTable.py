@@ -236,8 +236,8 @@ class FDMTable:
         self.copy_table_to_dataset(verbose=verbose)
         self._add_person_id_to_table(verbose=verbose)
         start_dates_parsed = self._add_parsed_date_to_table(
-            date_cols=fdm_end_date_cols,  
-            date_format=fdm_end_date_format,  
+            date_cols=fdm_start_date_cols,  
+            date_format=fdm_start_date_format,  
             date_column_name="fdm_start_date"
         )
         if start_dates_parsed:
@@ -574,9 +574,12 @@ class FDMTable:
         
         input_is_len_3_list = type(date_cols) == list and len(date_cols) == 3
         input_is_string = type(date_cols) == str
+        print(input_is_len_3_list, input_is_string)
         if not input_is_len_3_list and not input_is_string:
-            raise ValueError("Date cols must be either list with day/month/year "
-                             "OR string naming one column")
+            raise ValueError("Date cols must be either:\n    1. list naming "
+                             "cols or static values containing day/month/year "
+                             "info\n    2. string naming one column containing "
+                             "date info")
             
         date_format_settings = {
             "YMD": [True, False],
