@@ -572,6 +572,12 @@ class FDMTable:
 
     def _add_parsed_date_to_table(self, date_cols, date_format, date_column_name):
         
+        input_is_len_3_list = type(date_cols) == list and len(date_cols) == 3
+        input_is_string = type(date_cols) == str
+        if not input_is_len_3_list and not input_is_string:
+            raise ValueError("Date cols must be either list with day/month/year "
+                             "OR string naming one column")
+            
         date_format_settings = {
             "YMD": [True, False],
             "YDM": [True, True],
