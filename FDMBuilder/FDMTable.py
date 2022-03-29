@@ -176,32 +176,21 @@ class FDMTable:
         print("_" * 80 + "\n")
 
         print(f"1. Copying {self.table_id} to {self.dataset_id}:")
-        overwrite_existing = self._inputs_for_copy_table_to_dataset() 
-        self.copy_table_to_dataset(overwrite_existing=overwrite_existing,
-                                   verbose=True)
+        self._copy_table_to_dataset_w_inputs()
 
         print(f"\n2. Adding person_id column:")
-        person_id_added = self._add_person_id_to_table(user_input=True)
-        if not person_id_added:
+        identifier_added = self._add_person_id_to_table_w_inputs()
+        if not identifier_added:
             print(self._build_not_completed_message)
             return None
 
         print(f"\n3. Adding fdm_start_date column:")
-        fdm_start_added = self._add_fdm_start_date_to_table(
-            fdm_start_date_cols=None, 
-            fdm_start_date_format=None,
-            user_input=True
-        )
+        fdm_start_added = self._add_fdm_start_date_w_inputs()
         if not fdm_start_added:
             print(self._build_not_completed_message)
             return None
-
         print(f"\n4. Adding fdm_end_date column:")
-        fdm_end_added = self._add_fdm_end_date_to_table(
-            fdm_end_date_cols=None, 
-            fdm_end_date_format=None,
-            user_input=True
-        )
+        fdm_end_added = self._add_fdm_end_date_w_inputs()
         if not fdm_start_added:
             print(self._build_not_completed_message)
             return None
@@ -246,17 +235,25 @@ class FDMTable:
             print(f"Building {self.table_id}:")
         self.copy_table_to_dataset(verbose=verbose)
         self._add_person_id_to_table(verbose=verbose)
-        self._add_fdm_start_date_to_table(
-            fdm_start_date_cols,
-            fdm_start_date_format,
-            verbose=verbose
+        start_dates_parsed = self._add_parsed_date_to_table(
+            date_cols=fdm_end_date_cols,  
+            date_format=fdm_end_date_format,  
+            date_column_name="fdm_start_date"
         )
+        if start_dates_parsed:
+            print("    fdm_start_date column added")
+        else:
+            print("    fdm_start_date could not be parsed with inputs provided")
         if fdm_end_date_cols is not None:
-            self._add_fdm_end_date_to_table(
-                fdm_end_date_cols,
-                fdm_end_date_format,
-                verbose=verbose
+            end_dates_parsed = self._add_parsed_date_to_table(
+                date_cols=fdm_end_date_cols,  
+                date_format=fdm_end_date_format,  
+                date_column_name="fdm_end_date"
             )
+            if end_dates_parsed:
+                print("    fdm_end_date column added")
+            else:
+                print("    fdm_end_date could not be parsed with inputs provided")
         else:
             print("    no fdm_end_date info provided")
         print("Done.")
@@ -473,22 +470,6 @@ class FDMTable:
                 print(f"    {self.table_id} copied to {self.dataset_id}")
             return None
             
-            
-    def _inputs_for_copy_table_to_dataset(self): 
-        
-        response = input(f"""
-        A copy of {self.table_id} already exists in {self.dataset_id}. 
-        You can continue with the existing {self.table_id} table in {self.dataset_id}
-        or make a fresh copy from the source dataset."   
-
-        Continue with existing copy?
-        > Type y or n: """)
-        while response not in ["y", "n"]:
-            response = input("\n\tYour response didn't match y or n."
-                             "\n\t> Try again: ")
-        
-        return response == "y"
-            
     
     def recombine(self):
         if not check_table_exists(self.full_table_id + "_fdm_problems"):
@@ -503,66 +484,22 @@ class FDMTable:
         """
         run_sql_query(recombine_sql, destination=self.full_table_id)
         CLIENT.delete_table(self.full_table_id + "_fdm_problems")
-            
-            
-    def _check_for_identifier_columns_w_input(self):
-        
-        correct_identifiers = ["person_id", "digest", "EDRN"]
-        identifiers_in_src = [col for col in self.get_column_names()
-                              if col in correct_identifiers] 
-        if identifiers_in_src:
-            return True
-        
-        response = input(f"""
-    No identifier columns found! FDM process requires a person_id column 
-    in each table -  or  a digest/EDRN column to be able to link  person_ids.
-    person_id/digest/EDRN columns may be present under a different name - do any 
-    of the following colums contain digests or EDRNs? 
-    (Note: identifiers are case sensitive)
-    {col_names_list_string}
-    
-    If so, type the column in question. If not, type n.
-    > Response: """)
-        while not response in self.get_column_names() + ["n"]:
-            response = input(f"""
-    Response needs to match one of the above column names (case sensitive) or n
-    > Response: """)
-        if response == "n":
-            return False
-        miss_named_id_col = response 
-        response = input(f"""
-Does {miss_named_id_col} contain person_ids, digests or EDRNs?
-> Type either person_id, digest or EDRN: """)
-        while response not in ["person_id", "digest", "EDRN"]:
-            response = input(f"""
-Response needs to match one of person_id, digest or EDRN and is 
-case-sensitive.
-> Response: """)
-        print("\n")
-        self.rename_columns({miss_named_id_col: response})
         
         
-    
-    def _add_person_id_to_table(self, user_input=False, verbose=False):
-        
+    def _add_person_id_to_table(self, verbose=False):
         
         correct_identifiers = ["person_id", "digest", "EDRN"]
         identifiers_in_src = [col for col in self.get_column_names()
                               if col in correct_identifiers] 
         # find matching identifier columns and correct syntax if required
         if not identifiers_in_src:
-            if not user_input:
-                raise ValueError(
-                    f"None of person_id, digest, or EDRN in table columns"
-                )
-            col_names_list_string = "".join(
-                ["\n\t\t" + name for name in self.get_column_names()]
+            raise ValueError(
+                f"None of person_id, digest, or EDRN in table columns"
             )
         
         if "person_id" in self.get_column_names():
-            if user_input or verbose:
+            if verbose:
                 print(f"    {self.table_id} already contains person_id column")
-            return True
         else:
             if "digest" in self.get_column_names():
                 identifier = "digest"
@@ -575,9 +512,14 @@ case-sensitive.
                 ON src.{identifier} = demo.{identifier}
             """
             run_sql_query(sql, destination=self.full_table_id)
-            if user_input or verbose:
+            person_id_df = pd.read_gbq(f"SELECT person_id FROM {self.full_table_id}")
+            if person_id_df.person_id.isna().all():
+                raise ValueError(
+                    "none of identifier column entries have corresponding " 
+                    "person_id - join\nresulted in all NULL values"
+                )
+            if verbose:
                 print("    person_id column added")
-            return True
             
             
     def _get_fdm_date_df(self, date_cols, yearfirst, dayfirst):
@@ -680,15 +622,86 @@ case-sensitive.
         return True
     
     
-    def _add_fdm_start_date_to_table(self, fdm_start_date_cols, 
-                                       fdm_start_date_format, 
-                                       user_input=False, verbose=False):
+    def _copy_table_to_dataset_w_inputs(self): 
+        
+        overwrite_existing = False
+        if check_table_exists(self.full_table_id):
+            response = input(f"""
+        A copy of {self.table_id} already exists in {self.dataset_id}. 
+        You can continue with the existing {self.table_id} table in {self.dataset_id}
+        or make a fresh copy from the source dataset."   
+
+        Continue with existing copy?
+        > Type y or n: """)
+            while response not in ["y", "n"]:
+                response = input("\n\tYour response didn't match y or n."
+                                 "\n\t> Try again: ")
+            overwrite_existing = response == "n"
+        
+        self.copy_table_to_dataset(overwrite_existing=overwrite_existing,
+                                   verbose=True)
+            
+            
+    def _add_person_id_to_table_w_inputs(self):
+        
+        correct_identifiers = ["person_id", "digest", "EDRN"]
+        identifiers_in_src = [col for col in self.get_column_names()
+                              if col in correct_identifiers] 
+        if identifiers_in_src:
+            print(f"    {self.table_id} already contains person_id column")
+            return True
+        
+        col_names_list_string = "".join(
+            ["\n\t\t" + name for name in self.get_column_names()]
+        )
+        response = input(f"""
+    No identifier columns found! FDM process requires a person_id column 
+    in each table -  or  a digest/EDRN column to be able to link  person_ids.
+    person_id/digest/EDRN columns may be present under a different name - do any 
+    of the following colums contain digests or EDRNs? 
+    (Note: identifiers are case sensitive)
+    {col_names_list_string}
+    
+    If so, type the column in question. If not, type n.
+    > Response: """)
+        while not response in self.get_column_names() + ["n"]:
+            response = input(f"""
+    Response needs to match one of the above column names (case sensitive) or n
+    > Response: """)
+        if response == "n":
+            print("""
+    No identifier column to join person_id - have a discussion  with CYP data 
+    team to establish a way forward.
+            """)
+            return False
+        miss_named_id_col = response 
+        response = input(f"""
+    Does {miss_named_id_col} contain person_ids, digests or EDRNs?
+    > Type either person_id, digest or EDRN: """)
+        while response not in ["person_id", "digest", "EDRN"]:
+            response = input(f"""
+    Response needs to match one of person_id, digest or EDRN and is 
+    case-sensitive.
+    > Response: """)
+        print("\n")
+        self.rename_columns({miss_named_id_col: response})
+        try: 
+            self._add_person_id_to_table(verbose=True)
+            return True
+        except:
+            print("""
+    identifier column doesn't match with any person_ids and so all join results
+    are NULL - check the identifier column details again and then re-run build
+    
+    NOTE: You'll need to start with a fresh copy of the source data 
+    otherwise the same join will be attempted
+            """)
+            return False
+        
+        
+    def _add_fdm_start_date_w_inputs(self):
         
         if "fdm_start_date" in self.get_column_names():
-            if not user_input:
-                if verbose:
-                    print(f"    fdm_start_date column already present")
-                return None
             response = input(f"""
     fdm_start_date column is already present.
     
@@ -705,8 +718,7 @@ case-sensitive.
             else:
                 self.drop_column("fdm_start_date")
         
-        if user_input:
-            single_col_y_n = input(f"""
+        single_col_y_n = input(f"""
     An event start date is required to build the observation_period table. This 
     information should be contained within one or more columns of your table. 
     If unsure a quick look at the table data in BigQuery should clarify.
@@ -715,26 +727,26 @@ case-sensitive.
     parsed with a day, month and year? (The parser is pretty good at understanding
     most formats, including month names rather than numbers)
     > Type y or n """)
-            while single_col_y_n not in ["y", "n"]:
-                single_col_y_n = input("    Your response didn't match y or n.\n"
+        while single_col_y_n not in ["y", "n"]:
+            single_col_y_n = input("    Your response didn't match y or n.\n"
                                        "    > Try again: ")
-            if single_col_y_n == "y":
-                fdm_start_date_cols = input("""
+        if single_col_y_n == "y":
+            fdm_start_date_cols = input("""
     Which column contains the event start date?
     > Type the name (case sensitive): """)
-                while fdm_start_date_cols not in self.get_column_names():
-                    fdm_start_date_cols = input(f"""
+            while fdm_start_date_cols not in self.get_column_names():
+                fdm_start_date_cols = input(f"""
     {fdm_start_date_cols} doesn't match any of the columns in {self.table_id}"
     > Try again: """)
-                fdm_start_date_format = input("""
+            fdm_start_date_format = input("""
     What format does the date appear in YMD/YDM/DMY/MDY?
     > Type one: """)
-                while fdm_start_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
-                    fdm_start_date_format = input("""
+            while fdm_start_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
+                fdm_start_date_format = input("""
     Response must be one of YMD/YDM/DMY/MDY."
     > Try again: """)
-            else:
-                year = input("""
+        else:
+            year = input("""
     We'll build the event start date beginning with identifying the year.  
     Your response can be the name of a column that contains the year - it must be 
     the year only, other formats like Apr-2020 can't be parsed.  Otherwise static 
@@ -747,25 +759,25 @@ case-sensitive.
     
     Where can the year information be found?
     > Response: """)
-                if year == "quit":
-                    return False
-                month = input("""
+            if year == "quit":
+                return False
+            month = input("""
     And now we'll move onto the month. The same guidance as above applies.
     Remebmer, a static value like 02, or `Feb`, or `February` is acceptable.
     Where can the event start month be found?
     > Response:  """)
-                if month == "quit":
-                    return False
-                day = input("""
+            if month == "quit":
+                return False
+            day = input("""
     And then day. Again a static day like 15 is fine.
     
     Where can the event start day be found?
     > Response: """)
-                if day == "quit":
-                    return False
-                fdm_start_date_cols = [year, month, day]
-                fdm_start_date_format = "YMD"
-                print("\n    adding fdm_start_date_column...")
+            if day == "quit":
+                return False
+            fdm_start_date_cols = [year, month, day]
+            fdm_start_date_format = "YMD"
+            print("\n    adding fdm_start_date_column...")
                 
         dates_parsed = self._add_parsed_date_to_table(
             date_cols=fdm_start_date_cols,  
@@ -773,28 +785,19 @@ case-sensitive.
             date_column_name="fdm_start_date"
         )
         if dates_parsed:
-            if user_input or verbose:
-                print("    fdm_start_date column added")
+            print("    fdm_start_date column added")
             return True
-        elif user_input:
+        else:
             print("""
     Looks like something went wrong and the parser couldn't understand the date
     information you provided. Check your responses above and re-run .build() if
     you notice any errors. Otherwise, seek help from the CYP data team.""")
             return False
-        else:
-            raise ValueError("fdm_start_dates couldn't be parsed - all values None")
         
         
-    def _add_fdm_end_date_to_table(self, fdm_end_date_cols, 
-                                     fdm_end_date_format, 
-                                     user_input=False, verbose=False):
+    def _add_fdm_end_date_w_inputs(self):
         
         if "fdm_end_date" in self.get_column_names():
-            if not user_input:
-                if verbose:
-                    print(f"    fdm_start_date column already present")
-                return None
             response = input("""
     fdm_end_date column is already present.
     You can continue with the existing fdm_end_date column or rebuild a new 
@@ -809,8 +812,7 @@ case-sensitive.
             else:
                 self.drop_column("fdm_end_date")
         
-        if user_input: 
-            has_fdm_end_date = input("""
+        has_fdm_end_date = input("""
     An event end date may or may not be relevant to this source data. For example, 
     hospital visits or academic school years have an end date as well as a start 
     date.
@@ -821,14 +823,14 @@ case-sensitive.
     Does this data have an event end date?"
     > Type y or n: """)
             
-            while has_fdm_end_date not in ["y", "n"]:
-                has_fdm_end_date = input("\n    Your response didn't match y or n."
-                                       "\n    > Try again: ")
-                
-            if not has_fdm_end_date == "y":
-                return True
-            
-            single_col_y_n = input("""
+        while has_fdm_end_date not in ["y", "n"]:
+            has_fdm_end_date = input("\n    Your response didn't match y or n."
+                                   "\n    > Try again: ")
+
+        if not has_fdm_end_date == "y":
+            return True
+
+        single_col_y_n = input("""
     The process will now proceed in exactly the same way as with the event start 
     date. Refer to the guidance above if at all unsure about the responses to any
     of the following questions.
@@ -836,44 +838,44 @@ case-sensitive.
     Is the event end date found in one column that can be easily parsed with a 
     day, month and year?
     > Type y or n: """)
-            while single_col_y_n not in ["y", "n"]:
-                single_col_y_n = input("\n    Your response didn't match y or n."
-                                       "\n    > Try again: ")
-                
-            if single_col_y_n == "y":
-                fdm_end_date_cols = input(
-                    "\n    Which column contains the event end date."
-                    "\n    > Type the name (case sensitive): "
-                )
-                while fdm_end_date_cols not in self.get_column_names():
-                    fdm_end_date_cols = input(f"""
+        while single_col_y_n not in ["y", "n"]:
+            single_col_y_n = input("\n    Your response didn't match y or n."
+                                   "\n    > Try again: ")
+
+        if single_col_y_n == "y":
+            fdm_end_date_cols = input(
+                "\n    Which column contains the event end date."
+                "\n    > Type the name (case sensitive): "
+            )
+            while fdm_end_date_cols not in self.get_column_names():
+                fdm_end_date_cols = input(f"""
     {fdm_end_date_cols} doesn't match any of the columns in {self.table_id}"
     > Try again: """)
-                fdm_end_date_format = input("""
+            fdm_end_date_format = input("""
     What format does the date appear in? YMD/YDM/DMY/MDY
     > type one: """)
-                while fdm_end_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
-                    fdm_end_date_cols = input("""
+            while fdm_end_date_format not in ["YMD", "YDM", "DMY", "MDY"]:
+                fdm_end_date_cols = input("""
     Response must be one of YMD/YDM/DMY/MDY.
     > Try again: """)
-            else:
-                year = input("""
+        else:
+            year = input("""
     Where can the event end year be found?
     > Response: """)
-                if year == "quit":
-                    return False
-                month = input("""
+            if year == "quit":
+                return False
+            month = input("""
     Where can the event end month be found?
     > Response: """)
-                if year == "quit":
-                    return False
-                day = input("""
+            if year == "quit":
+                return False
+            day = input("""
     Where can the event end day be found?
     > Response: """)
-                if year == "quit":
-                    return False
-                fdm_end_date_cols = [year, month, day]
-                fdm_end_date_format = "YMD"
+            if year == "quit":
+                return False
+            fdm_end_date_cols = [year, month, day]
+            fdm_end_date_format = "YMD"
                 
         dates_parsed = self._add_parsed_date_to_table(
             date_cols=fdm_end_date_cols,  
@@ -881,14 +883,13 @@ case-sensitive.
             date_column_name="fdm_end_date"
         )
         if dates_parsed:
-            if user_input or verbose:
-                print("    fdm_end_date column added")
-                return True
-        elif user_input:
+            print("    fdm_end_date column added")
+            return True
+        else:
             print("""
     Looks like something went wrong and the parser couldn't understand the date
     information you provided. Check your responses above and re-run .build() if
     you notice any errors. Otherwise, seek help from the CYP data team. """)
             return False
-        else:
-            raise ValueError("fdm_end_dates couldn't be parsed - all values None")
+
+        
