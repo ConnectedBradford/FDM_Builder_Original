@@ -330,8 +330,8 @@ class FDMTable:
         
         Args:
             names_map: dict, key-value pairs are strings, keys detailing
-            current names, values the new names columns should be renamed
-            to
+                current names, values the new names columns should be renamed
+                to
                 
         Returns:
             None - changes occurr in GCP
@@ -353,7 +353,7 @@ class FDMTable:
     @_check_table_exists_in_dataset
     @_check_problems_table_doesnt_exist
     def head(self, n=10):
-        """Displays first n rows of table as pandas dataframe
+        """Displays first n rows of table as pandas DataFrame
         
         Args:
             n: int, number of rows from table to return
@@ -372,17 +372,26 @@ class FDMTable:
     
     @_check_table_exists_in_dataset
     def _get_table_schema_dict(self):
-        """SHORT DESCRIPTION OF FN
-
-        LONDGER DESCRIPTION HERE
-
-        Args:
-                
-        Returns:
+        """Creates dictionary containing column name: column type 
         
-        Example:
-        ```python
-        ```
+        Takes the Schema object from the bigquery library and extracts
+        the `name` and `field_type` attributes from each Field and stores
+        them as key/value pairs in a python dictionary. The result is a 
+        dictionary with keys for each column name in the source data, and 
+        corresponding values for the data type of each column
+        
+        e.g:
+        
+        {
+            "string_column_name": "STRING",
+             "int_column_name": "INTEGER",
+             ...
+        }
+        
+        Requres no arguments.
+
+        Returns:
+            dict, column name: colum data type pairs 
         """
         table_schema = CLIENT.get_table(self.full_table_id).schema
         return {field.name: field.field_type  
@@ -391,19 +400,20 @@ class FDMTable:
     
     @_check_table_exists_in_dataset
     def build_data_dict(self):
-        """Builds starting data dictionary and uploads to GCP
+        """Creates table with basic data dictionary in table dataset
 
-        LONDGER DESCRIPTION HERE
+        Generates a "data dictionary" as a separate table in BigQuery named 
+        [source_table_name]_data_dict. Table includes the name of each 
+        column/variable, the data type of each column/variable and some 
+        information on the actual data: if the column is numeric/DateTime a 
+        min/max is detailed (plus a mean for non DateTime columns), or some 
+        examples of unique values for non-numeric columns.
 
-        Args:
+        Requires no arguments.
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            None - changes occurr in GCP
         """
-        
         schema_dict = self._get_table_schema_dict()
         data_dict = {
             "variable_name": [],
@@ -472,17 +482,23 @@ class FDMTable:
     
     
     def copy_table_to_dataset(self, overwrite_existing=False, verbose=False):
-        """SHORT DESCRIPTION OF FN
-
-        LONDGER DESCRIPTION HERE
-
+        """Creates a copy of the source table in the FDMTable dataset
+        
+        What it says on the tin: creates a copy of the source table in the
+        dataset specified when initialising the FDMTable object. Includes options
+        to overwrite an existing table with the same name in the specified dataset.
+        If a copy of the table already exists in the dataset and `overwrite_existing` 
+        is False, nothing happens.
+        
         Args:
+            overwrite_existing: bool, True/False overwrites/leaves an existing 
+                table with the same name as the source table in the FDMTable 
+                dataset. 
+            verbose: True/False prints/suppresses console output when function
+                runs
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            None - changes occurr in GCP
         """
         
         src_copy_exists = check_table_exists(self.full_table_id)
@@ -504,17 +520,23 @@ class FDMTable:
             
     
     def recombine(self):
-        """SHORT DESCRIPTION OF FN
+        """Re-combines source data and problems tables
 
-        LONDGER DESCRIPTION HERE
+        After running an FDMDataset build, entries that have "problems" (e.g. 
+        the event date falls outside an accepted range - before birth/after death)
+        are removed from the source data table in the new dataset and stored in 
+        a new table called [source_table_name]_problems. Any changes thereafter
+        to the source data require the source table to be "re-combined" with it's 
+        problem entries, to ensure the data remains in the correct format, and 
+        subsequent changes that might correct certain "problems" are not missed. 
+        `recombine` stiches the source and problems tables back together, retaining 
+        a `problems` column that details which of the entries have an associated 
+        "problem".
 
-        Args:
+        Requires no arguments.
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            None - changes occurr in GCP
         """
         if not check_table_exists(self.full_table_id + "_fdm_problems"):
             raise ValueError(f"{self.table_id} has no corresponding fdm "
@@ -531,17 +553,18 @@ class FDMTable:
         
         
     def _add_person_id_to_table(self, verbose=False):
-        """SHORT DESCRIPTION OF FN
+        """Adds person_id column to the table
 
-        LONDGER DESCRIPTION HERE
+        What it says on the tin - uses unique identifiers (Digest/EDRN) to add
+        person_id column to the table, obviously populated with the relevant 
+        person_id that corresponds to each observation.
 
         Args:
+            verbose: True/False prints/suppresses console output when function
+                runs
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            None - changes occurr in GCP
         """
         
         correct_identifiers = ["person_id", "digest", "EDRN"]
