@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=SyntaxWarning)
 
-# Set global variables
+# Set global variables 
 PROJECT = "yhcr-prd-phm-bia-core"
 CLIENT = bigquery.Client(project=PROJECT)
 DEMOGRAPHICS = f"{PROJECT}.CY_STAGING_DATABASE.src_DemoGraphics_MASTER"
@@ -372,6 +372,18 @@ class FDMTable:
     
     @_check_table_exists_in_dataset
     def _get_table_schema_dict(self):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         table_schema = CLIENT.get_table(self.full_table_id).schema
         return {field.name: field.field_type  
                 for field in table_schema}
@@ -380,10 +392,18 @@ class FDMTable:
     @_check_table_exists_in_dataset
     def build_data_dict(self):
         """Builds starting data dictionary and uploads to GCP
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
         
-        
-        
+        Example:
+        ```python
+        ```
         """
+        
         schema_dict = self._get_table_schema_dict()
         data_dict = {
             "variable_name": [],
@@ -452,6 +472,18 @@ class FDMTable:
     
     
     def copy_table_to_dataset(self, overwrite_existing=False, verbose=False):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         
         src_copy_exists = check_table_exists(self.full_table_id)
         
@@ -472,6 +504,18 @@ class FDMTable:
             
     
     def recombine(self):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         if not check_table_exists(self.full_table_id + "_fdm_problems"):
             raise ValueError(f"{self.table_id} has no corresponding fdm "
                              "problems table in {self.dataset_id}")
@@ -487,6 +531,18 @@ class FDMTable:
         
         
     def _add_person_id_to_table(self, verbose=False):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         
         correct_identifiers = ["person_id", "digest", "EDRN"]
         identifiers_in_src = [col for col in self.get_column_names()
@@ -523,6 +579,18 @@ class FDMTable:
             
             
     def _get_fdm_date_df(self, date_cols, yearfirst, dayfirst):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
 
         schema_dict = self._get_table_schema_dict()
         if type(date_cols) == list and len(date_cols) == 3:
@@ -571,10 +639,21 @@ class FDMTable:
 
 
     def _add_parsed_date_to_table(self, date_cols, date_format, date_column_name):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         
         input_is_len_3_list = type(date_cols) == list and len(date_cols) == 3
         input_is_string = type(date_cols) == str
-        print(input_is_len_3_list, input_is_string)
         if not input_is_len_3_list and not input_is_string:
             raise ValueError("Date cols must be either:\n    1. list naming "
                              "cols or static values containing day/month/year "
@@ -632,6 +711,18 @@ class FDMTable:
     
     
     def _copy_table_to_dataset_w_inputs(self): 
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         
         overwrite_existing = False
         if check_table_exists(self.full_table_id):
@@ -652,6 +743,18 @@ class FDMTable:
             
             
     def _add_person_id_to_table_w_inputs(self):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         
         correct_identifiers = ["person_id", "digest", "EDRN"]
         identifiers_in_src = [col for col in self.get_column_names()
@@ -709,6 +812,18 @@ class FDMTable:
         
         
     def _add_fdm_start_date_w_inputs(self):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         
         if "fdm_start_date" in self.get_column_names():
             response = input(f"""
@@ -805,6 +920,18 @@ class FDMTable:
         
         
     def _add_fdm_end_date_w_inputs(self):
+        """SHORT DESCRIPTION OF FN
+
+        LONDGER DESCRIPTION HERE
+
+        Args:
+                
+        Returns:
+        
+        Example:
+        ```python
+        ```
+        """
         
         if "fdm_end_date" in self.get_column_names():
             response = input("""
