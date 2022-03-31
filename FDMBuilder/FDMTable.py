@@ -45,8 +45,6 @@ class FDMTable:
     
     def __init__(self, source_table_id, dataset_id):
             
-        # error checks to ensure table/dataset exist and that FDMTable
-        # wont overwrite source dataset
         if not check_table_exists(source_table_id):
             raise ValueError(f"""
     {source_table_id} doesn't exist. Be sure to include the dataset id 
@@ -57,19 +55,20 @@ class FDMTable:
     Dataset {dataset_id} doesn't exist. Double check spelling and GCP then 
     try again.
             """)
-        if dataset_id == source_table_id.split(".")[1]:
+        source_table_dataset = source_table_id.split(".")[1]
+        if dataset_id == source_table_dataset:
             raise ValueError("""
     The dataset_id specified contains the original source table. FDMTable builds 
     must be performed in a fresh dataset to maintain an unchanged copy of the 
     original source table. Create an empty dataset in which to build your FDM, 
     and re-initialise the FDMTable using this dataset.
             """)
-        # add project_id to source_table_id if not already included - GCP
-        # SQL engine will sometimes throw errors if project_id not specified
-        # in queries
+        # add project_id to source_table_id if not already included in input 
+        # GCP SQL engine will often throw errors if project_id not specified
         if len(source_table_id.split(".")) == 2: 
             source_table_id = f"{PROJECT}." + source_table_id
         self.source_table_full_id = source_table_id
+        # remove the project_id from the dataset_id argument if included
         if len(dataset_id.split(".")) == 2:
             dataset_id = dataset_id.split(".")[-1]
         self.dataset_id = dataset_id
@@ -150,7 +149,6 @@ class FDMTable:
             fdm_end_present = "fdm_end_date" in column_names
             fdm_end_present = "fdm_end_date" in column_names
             problem_table_present = check_table_exists(self.full_table_id 
-                                                       + "_fdm_problems")
         else:
             person_id_present = False
             fdm_start_present = False
@@ -179,19 +177,19 @@ class FDMTable:
         self._copy_table_to_dataset_w_inputs()
 
         print(f"\n2. Adding person_id column:")
-        identifier_added = self._add_person_id_to_table_w_inputs()
-        if not identifier_added:
+        person_id_added = self._add_person_id_to_table_w_inputs()
+        if not person_id_added:
             print(self._build_not_completed_message)
             return None
 
         print(f"\n3. Adding fdm_start_date column:")
-        fdm_start_added = self._add_fdm_start_date_w_inputs()
-        if not fdm_start_added:
+        fdm_start_date_added = self._add_fdm_start_date_w_inputs()
+        if not fdm_start_date_added:
             print(self._build_not_completed_message)
             return None
         print(f"\n4. Adding fdm_end_date column:")
-        fdm_end_added = self._add_fdm_end_date_w_inputs()
-        if not fdm_start_added:
+        fdm_end_date_added = self._add_fdm_end_date_w_inputs()
+        if not fdm_end_date_added:
             print(self._build_not_completed_message)
             return None
 
@@ -206,7 +204,7 @@ class FDMTable:
 
         Adds the 3 basic FDM table features:  1. A person_id column  2. An Event 
         start date - parsed into a DATETIME 3. An Event end date 
-        (if required) without console input as with `build`.
+        (if required) without console input used in `build` method.
 
         Args:
             fdm_start_date_cols: string/list, name of individual column that 
@@ -235,22 +233,22 @@ class FDMTable:
             print(f"Building {self.table_id}:")
         self.copy_table_to_dataset(verbose=verbose)
         self._add_person_id_to_table(verbose=verbose)
-        start_dates_parsed = self._add_parsed_date_to_table(
+        fdm_start_date_added = self._add_parsed_date_to_table(
             date_cols=fdm_start_date_cols,  
             date_format=fdm_start_date_format,  
             date_column_name="fdm_start_date"
         )
-        if start_dates_parsed:
+        if fdm_start_date_added:
             print("    fdm_start_date column added")
         else:
             print("    fdm_start_date could not be parsed with inputs provided")
         if fdm_end_date_cols is not None:
-            end_dates_parsed = self._add_parsed_date_to_table(
+            fdm_end_date_added = self._add_parsed_date_to_table(
                 date_cols=fdm_end_date_cols,  
                 date_format=fdm_end_date_format,  
                 date_column_name="fdm_end_date"
             )
-            if end_dates_parsed:
+            if fdm_end_date_added:
                 print("    fdm_end_date column added")
             else:
                 print("    fdm_end_date could not be parsed with inputs provided")
@@ -271,6 +269,34 @@ class FDMTable:
         return [field.name for field in table.schema]
             
             
+    @_check_table_exists_in_dataset
+    def _get_table_schema_dict(self):
+        """Creates dictionary containing column name: column type 
+        
+        Takes the Schema object from the bigquery library and extracts
+        the `name` and `field_type` attributes from each Field and stores
+        them as key/value pairs in a python dictionary. The result is a 
+        dictionary with keys for each column name in the source data, and 
+        corresponding values for the data type of each column
+        
+        e.g:
+        
+        {
+            "string_column_name": "STRING",
+             "int_column_name": "INTEGER",
+             ...
+        }
+        
+        Requres no arguments.
+
+        Returns:
+            dict, column name: colum data type pairs 
+        """
+        table = CLIENT.get_table(self.full_table_id)
+        return {field.name: field.field_type  
+                for field in table.schema}
+                                                                                                          
+    
     @_check_table_exists_in_dataset
     @_check_problems_table_doesnt_exist
     def add_column(self, column_sql):
@@ -298,11 +324,11 @@ class FDMTable:
         )
         ```
         """
-        sql = f"""
+        add_column_sql = f"""
             SELECT *, {column_sql}
             FROM `{self.full_table_id}`
         """
-        run_sql_query(sql, destination=self.full_table_id)
+        run_sql_query(add_column_sql, destination=self.full_table_id)
     
     
     @_check_table_exists_in_dataset
@@ -316,11 +342,11 @@ class FDMTable:
         Returns:
             None - changes occurr in GCP
         """
-        sql = f"""
+        drop_column_sql = f"""
             ALTER TABLE `{self.full_table_id}`
             DROP COLUMN {column}
         """
-        run_sql_query(sql)
+        run_sql_query(drop_column_sql)
     
     
     @_check_table_exists_in_dataset
@@ -362,41 +388,13 @@ class FDMTable:
             pandas.DataFrame, containing first n rows of data from
                 table
         """
-        sql = f"""
+        head_sql = f"""
             SELECT *
             FROM `{self.full_table_id}`
             LIMIT {n}
         """
-        return pd.read_gbq(sql)
+        return pd.read_gbq(head_sql)
     
-    
-    @_check_table_exists_in_dataset
-    def _get_table_schema_dict(self):
-        """Creates dictionary containing column name: column type 
-        
-        Takes the Schema object from the bigquery library and extracts
-        the `name` and `field_type` attributes from each Field and stores
-        them as key/value pairs in a python dictionary. The result is a 
-        dictionary with keys for each column name in the source data, and 
-        corresponding values for the data type of each column
-        
-        e.g:
-        
-        {
-            "string_column_name": "STRING",
-             "int_column_name": "INTEGER",
-             ...
-        }
-        
-        Requres no arguments.
-
-        Returns:
-            dict, column name: colum data type pairs 
-        """
-        table_schema = CLIENT.get_table(self.full_table_id).schema
-        return {field.name: field.field_type  
-                for field in table_schema}
-                                                                                                          
     
     @_check_table_exists_in_dataset
     def build_data_dict(self):
@@ -509,11 +507,11 @@ class FDMTable:
                       f"{self.dataset_id}")
             return None
         else:
-            sql = f"""
+            copy_table_sql = f"""
                 SELECT * 
                 FROM `{self.source_table_full_id}`
             """
-            run_sql_query(sql, destination=self.full_table_id)
+            run_sql_query(copy_table_sql, destination=self.full_table_id)
             if verbose:
                 print(f"    {self.table_id} copied to {self.dataset_id}")
             return None
@@ -568,10 +566,10 @@ class FDMTable:
         """
         
         correct_identifiers = ["person_id", "digest", "EDRN"]
-        identifiers_in_src = [col for col in self.get_column_names()
-                              if col in correct_identifiers] 
+        identifiers_in_table = [col for col in self.get_column_names() 
+                                if col in correct_identifiers] 
         # find matching identifier columns and correct syntax if required
-        if not identifiers_in_src:
+        if not identifiers_in_table:
             raise ValueError(
                 f"None of person_id, digest, or EDRN in table columns"
             )
@@ -584,13 +582,13 @@ class FDMTable:
                 identifier = "digest"
             else:
                 identifier = "EDRN" 
-            sql = f"""
+            add_person_id_sql = f"""
                 SELECT demo.person_id, src.*
                 FROM `{self.full_table_id}` src
                 LEFT JOIN `{DEMOGRAPHICS}` demo
                 ON src.{identifier} = demo.{identifier}
             """
-            run_sql_query(sql, destination=self.full_table_id)
+            run_sql_query(add_person_id_sql, destination=self.full_table_id)
             person_id_df = pd.read_gbq(f"SELECT person_id FROM {self.full_table_id}")
             if person_id_df.person_id.isna().all():
                 raise ValueError(
@@ -602,17 +600,25 @@ class FDMTable:
             
             
     def _get_fdm_date_df(self, date_cols, yearfirst, dayfirst):
-        """SHORT DESCRIPTION OF FN
+        """Reads and parses dates from source table as pandas DataFrame
 
-        LONDGER DESCRIPTION HERE
+        Reads data from table containing date information into pandas DataFrame 
+        and parses with the dateutil parser. UUID required in dataframe, as 
+        parsed dates need to be added back to table.
 
         Args:
+            date_cols: string/list, either a string naming a column that contains
+                all the date information (day & month & year) or a list naming 
+                column names or static values containing the day/month/year info
+            yearfirst: bool, if the year appears first in the date info - supersedes
+                dayfirst so yearfirst=True always assumes year info appears first
+                followed by day/month. If False, assumes year appears last.
+            dayfirst: bool, if day appears before month. Superseeded by yearfirst 
+                i.e. yearfirst=True, dayfirst=True means Year/day/month format
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            pandas DataFrame, containing UUID column and parsed_date column with
+                datetimes
         """
 
         schema_dict = self._get_table_schema_dict()
@@ -662,17 +668,25 @@ class FDMTable:
 
 
     def _add_parsed_date_to_table(self, date_cols, date_format, date_column_name):
-        """SHORT DESCRIPTION OF FN
+        """Adds date info to table in datetime format
 
-        LONDGER DESCRIPTION HERE
+        Takes date information from specified column(s), parses datetime 
+        information and adds datetime in new column, named by date_column_name 
+        argument. If date_cols is a single column that already contains
+        datetimes/dates, the function simply creates a new colum and copies
+        the data across, naming it using date_column_name.
 
         Args:
+            date_cols: string/list, either a string naming a column that contains
+                all the date information (day & month & year) or a list naming 
+                column names or static values containing the day/month/year info
+            date_format: string, format the date appears in one of "DMY"/"MDY"/
+                "YMD"/"YDM"  D being day,  M month and Y year.
+            date_column_name: string, name to give the new parsed DATETIME column
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            bool, True if parsed date column successfully added to table, 
+                otherwise False
         """
         
         input_is_len_3_list = type(date_cols) == list and len(date_cols) == 3
@@ -734,17 +748,16 @@ class FDMTable:
     
     
     def _copy_table_to_dataset_w_inputs(self): 
-        """SHORT DESCRIPTION OF FN
+        """copies table to dataset with user input options
+        
+        Functions exactly as with `copy_table_to_dataeset`, but asks
+        (via user input) if an existing copy of the table should be 
+        overwritten or kept, if applicable.
 
-        LONDGER DESCRIPTION HERE
-
-        Args:
+        No arguments required.
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            None - all changes occurr in GCP
         """
         
         overwrite_existing = False
@@ -766,17 +779,16 @@ class FDMTable:
             
             
     def _add_person_id_to_table_w_inputs(self):
-        """SHORT DESCRIPTION OF FN
+        """Adds person_id to table with assitance from user input
 
-        LONDGER DESCRIPTION HERE
+        Walks user through process of renaming a column that contains
+        either EDRNs or Digests before then adding person_id, using 
+        output prompts and user input. See input calls for further info
 
-        Args:
+        No arguments required.
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            bool, True if person_id added, otherwise False
         """
         
         correct_identifiers = ["person_id", "digest", "EDRN"]
@@ -835,17 +847,23 @@ class FDMTable:
         
         
     def _add_fdm_start_date_w_inputs(self):
-        """SHORT DESCRIPTION OF FN
+        """Adds fdm_start_date with prompts for user input
 
-        LONDGER DESCRIPTION HERE
+        Walks user through process of adding parsed start date to table, 
+        prompting the user for required information to parse dates i.e. 
+        
+        * if the date information appears in one/multiple columns
+        * which column(s) contain the information - including explanation that
+          static values can be used in place of one or more missing day/month/
+          year columns
+          
+        See text in input calls for further info
 
-        Args:
+        No arguments required.
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            bool, True if start date column can be parsed and added, otherwise 
+                False
         """
         
         if "fdm_start_date" in self.get_column_names():
@@ -943,17 +961,24 @@ class FDMTable:
         
         
     def _add_fdm_end_date_w_inputs(self):
-        """SHORT DESCRIPTION OF FN
+        """Adds fdm_end_date with prompts for user input
 
-        LONDGER DESCRIPTION HERE
+        Walks user through process of adding parsed end date to table, 
+        prompting the user for required information to parse dates i.e. 
+        
+        * if the table data contains an end date 
+        * if the end date information appears in one/multiple columns
+        * which column(s) contain the information - including explanation that
+          static values can be used in place of one or more missing day/month/
+          year columns
+          
+        See text in input calls for further info
 
-        Args:
+        No arguments required.
                 
         Returns:
-        
-        Example:
-        ```python
-        ```
+            bool, True if end date column can be parsed and added, or if the user
+                responds that there isn't an end date, otherwise False
         """
         
         if "fdm_end_date" in self.get_column_names():
