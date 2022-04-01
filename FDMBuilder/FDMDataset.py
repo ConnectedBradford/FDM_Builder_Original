@@ -21,9 +21,6 @@ class FDMDataset:
         person_table_id = full id of person table 
         observation_period_table_id = full id of observation_period table
     """
-    
-    
-    
     def __init__(self, dataset_id):
         self.dataset_id = dataset_id
         self.person_table_id = f"{PROJECT}.{dataset_id}.person"
@@ -36,6 +33,22 @@ class FDMDataset:
     
     
     def build(self, includes_pre_natal=False):
+        """Builds the FDM dataset
+        
+        Simply requires that the dataset specified when initialising the 
+        FDMDataset contains all the required source tables and that the source 
+        tables have been "built" using the FDMTable tool. Running .build() then
+        generates all the necessary standard FDM tables.
+        
+        Args:
+            includes_pre_natal: bool (default False), determines if observations 
+                dated within pre-natal period before birth (300 days) are 
+                removed, False, or kept, True,  when generating the problem 
+                tables
+        
+        Returns:
+            None - all changes in GCP
+        """
         
         print(f"\t\t ##### BUILDING FDM DATASET {self.dataset_id} #####")
         print("_" * 80 + "\n")
@@ -64,6 +77,11 @@ class FDMDataset:
         
     
     def create_dataset(self):
+        """Creates dataset named in dataset_id if it doesn't already exist
+        
+        Returns: 
+            None - all changes in GCP
+        """
         try:
             CLIENT.get_dataset(self.dataset_id)
             print(f"Dataset {self.dataset_id} already exists!")
@@ -75,6 +93,16 @@ class FDMDataset:
         
     
     def _get_fdm_tables(self):
+        """Generates FDMTable objects for every source table in dataset
+            
+        Collects all non-standard FDM tables in dataset i.e. the source datasets,
+        checks if they're ready for an FDM build (see `.check_build()` method of
+        FDMTable for more info) stores FDMTable objects for each as a list in a 
+        `tables` attribute, for use in rest of build process.
+        
+        Returns:
+            bool, True if all tables are ready for FDM build, otherwise False
+        """
               
         standard_tables = ["person", "observation_period"]
         fdm_src_tables = []
@@ -114,7 +142,16 @@ class FDMDataset:
                 
                 
     def _build_person_table(self):
+        """Builds person table for dataset
         
+        Collects all the unique person_ids in each of the source tables and 
+        generates a copy of the master person table with entries that match 
+        these ids. If a person table already exists, a fresh table is built and 
+        overwrites the existing person table.
+        
+        Returns:
+            None - all changes in GCP
+        """
         # generate new table with unique person ids
         person_id_union_sql = "\nUNION ALL\n".join(
             [f"SELECT person_id FROM `{table.full_table_id}`"
@@ -145,7 +182,16 @@ class FDMDataset:
         
     
     def _build_observation_period_table(self):
+        """Builds the observation period table
         
+        Creates a union of the start/end dates in all the source tables and 
+        calculates a MIN start date and MAX end date for each unique person_id. 
+        The process assumes all the error entries have already been removed 
+        (see _split_problem_entries_from_src_tables)
+        
+        Returns:
+            None - all changes in GCP
+        """
         full_union_sql_list = []
         for table in self.tables:
             no_end_date = "fdm_end_date" not in table.get_column_names()
@@ -178,14 +224,42 @@ class FDMDataset:
         
         
     def _build_data_dictionaries(self):
+        """Builds a data dict in GCP for each source table
         
+        Simply takes all the tables in the `tables` attribute and calls the 
+        `build_data_dict` method for each 
+        
+        Returns:
+            None - all changes in GCP
+        """
         for table in self.tables:
             table.build_data_dict()
             print(f"    * {table.table_id}_data_dict built")
         
         
     def _add_problem_entries_column_to_table(self, table, includes_pre_natal):
-
+        """Labels all problem entries in a table
+        
+        Creates a "problems" column in the input table and labels any entries 
+        that have a "problem" - problems include:
+        
+        * No person_id
+        * person_id doesn't appear in master person table
+        * event date before birth date
+        * event date after death date (+42 days)
+        
+        and so on - read the code for the full list of "problems"
+        
+        Args:
+            table: FDMTable, table to which problems column is added
+            includes_pre_natal: bool, if the entries with a date within the 
+                pre-natal period should be marked as problems, True, the 
+                pre-natal entries are left blank, False, they are marked as 
+                problems.
+                
+        Returns:
+            None - all changes in GCP
+        """
         if "fdm_problem" in table.get_column_names():
             print(f"\tfdm_problem column already exists in {table.table_id}."
                   " Dropping...")
@@ -303,8 +377,21 @@ class FDMDataset:
             
             
     def _split_problem_entries_from_src_tables(self, includes_pre_natal):
-
-
+        """Splits source tables into those with/without problems
+        
+        Takes each source table with a problems column, and separates the 
+        entries that are marked with a problem into a separate 
+        [source-table-name]_problems table.
+        
+        Args:
+            includes_pre_natal: bool, weather entries daten in pre-natal period 
+                i.e. after conception but prior to birth should be counted 
+                as problems or not. True, pre-natal events aren't problems, 
+                False, they are.
+                
+        Returns:
+            None - all changes in GCP
+        """
         for table in self.tables:
 
             print(f"    {table.table_id}:")
