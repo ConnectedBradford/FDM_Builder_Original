@@ -3,6 +3,26 @@ from FDMBuilder.FDMTable import *
     
     
 class FDMDataset:
+    """A Tool for building an FDM dataset
+    
+    Takes a dataset with pre-prepared tables and generates the following tables:
+    
+    1. person table
+    2. observation period table
+    3. problem tables for each of the source tables (these contain any entries 
+       removed for various issues - observations outside birth/death dates etc.)
+    4. data_dict for each source table
+    
+    Args:
+        dataset_id: string, id of the dataset in GCP
+        
+    Attributes:
+        dataset_id = id of dataset where table is to be built in GCP
+        person_table_id = full id of person table 
+        observation_period_table_id = full id of observation_period table
+    """
+    
+    
     
     def __init__(self, dataset_id):
         self.dataset_id = dataset_id

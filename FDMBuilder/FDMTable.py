@@ -356,8 +356,7 @@ class FDMTable:
         
         Args:
             names_map: dict, key-value pairs are strings, keys detailing
-                current names, values the new names columns should be renamed
-                to
+                current names, values the new names of the columns
                 
         Returns:
             None - changes occurr in GCP
@@ -433,8 +432,7 @@ class FDMTable:
                 data_sql = f"SELECT MIN({col_name}) AS min_val, "
                 data_sql += f"MAX({col_name}) AS max_val"
                 if col_dtype != "DATETIME":
-                    data_sql += (f", AVG({col_name}) "
-                                 "AS mean_val")
+                    data_sql += f", AVG({col_name}) AS mean_val"
                 data_sql += f" FROM `{self.full_table_id}`"
                 data_sql += f" WHERE {col_name} IS NOT NULL"
                 data_df = pd.read_gbq(data_sql)
@@ -505,7 +503,6 @@ class FDMTable:
             if verbose:
                 print(f"    using existing copy of {self.table_id} in " 
                       f"{self.dataset_id}")
-            return None
         else:
             copy_table_sql = f"""
                 SELECT * 
@@ -514,7 +511,6 @@ class FDMTable:
             run_sql_query(copy_table_sql, destination=self.full_table_id)
             if verbose:
                 print(f"    {self.table_id} copied to {self.dataset_id}")
-            return None
             
     
     def recombine(self):
