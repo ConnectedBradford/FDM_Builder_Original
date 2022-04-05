@@ -32,7 +32,7 @@ class FDMDataset:
                   "run .create_dataset()")
     
     
-    def build(self, includes_pre_natal=False):
+    def build(self, excluded_tables=[], includes_pre_natal=False):
         """Builds the FDM dataset
         
         Simply requires that the dataset specified when initialising the 
@@ -53,7 +53,7 @@ class FDMDataset:
         print(f"\t\t ##### BUILDING FDM DATASET {self.dataset_id} #####")
         print("_" * 80 + "\n")
         print("1. Checking dataset for source tables:\n")
-        build_ready = self._get_fdm_tables()
+        build_ready = self._get_fdm_tables(excluded_tables)
         if not build_ready:
             print(
             "_" * 80 + "\n\n"  
@@ -92,7 +92,7 @@ class FDMDataset:
             print(f"Dataset {self.dataset_id} created")
         
     
-    def _get_fdm_tables(self):
+    def _get_fdm_tables(self, excluded_tables):
         """Generates FDMTable objects for every source table in dataset
             
         Collects all non-standard FDM tables in dataset i.e. the source datasets,
@@ -111,7 +111,8 @@ class FDMDataset:
             is_standard_table = table.table_id in standard_tables
             is_problem_table = "fdm_problems" in table.table_id
             is_data_dict = "data_dict" in table.table_id
-            if is_standard_table or is_problem_table or is_data_dict:
+            is_excluded = table.table_id in excluded_tables
+            if is_standard_table or is_problem_table or is_data_dict or is_excluded:
                 continue
             fdm_table = FDMTable(
                 source_table_id = (f"{self.dataset_id}.{table.table_id}"),
@@ -126,7 +127,9 @@ class FDMDataset:
     {table.table_id} is missing: {person_missing}{start_missing}
     
     Complete the table build process for {table.table_id} and then re-run the
-    dataset build.
+    dataset build -- OR -- if the table doesn't apply to the usual FDM criteria
+    e.g. it's a lookup table, then add to the `excluded_tables` argument of 
+    `.build()`.
                 """)
                 build_ready = False
             else:
