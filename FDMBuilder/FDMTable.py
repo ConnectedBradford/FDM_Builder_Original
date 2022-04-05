@@ -148,7 +148,7 @@ class FDMTable:
             fdm_start_present = "fdm_start_date" in column_names
             fdm_end_present = "fdm_end_date" in column_names
             fdm_end_present = "fdm_end_date" in column_names
-            problem_table_present = check_table_exists(self.full_table_id 
+            problem_table_present = check_table_exists(self.full_table_id + "_fdm_problems")
         else:
             person_id_present = False
             fdm_start_present = False
@@ -197,6 +197,7 @@ class FDMTable:
         print(f"\t ##### BUILD PROCESS FOR {self.table_id} COMPLETE! #####\n")
     
     
+    @_check_problems_table_doesnt_exist
     def quick_build(self, fdm_start_date_cols, fdm_start_date_format,
                     fdm_end_date_cols=None, fdm_end_date_format=None,
                     verbose=True):
@@ -565,13 +566,23 @@ class FDMTable:
         identifiers_in_table = [col for col in self.get_column_names() 
                                 if col in correct_identifiers] 
         # find matching identifier columns and correct syntax if required
+                                                       
         if not identifiers_in_table:
             raise ValueError(
                 f"None of person_id, digest, or EDRN in table columns"
             )
-        
         if "person_id" in self.get_column_names():
-            if verbose:
+            person_id_dtype = self._get_table_schema_dict()["person_id"]
+            if person_id_dtype != "INTEGER":
+                if verbose:
+                    print(f"    converting person_id to INTEGER")
+                convert_person_id_sql = f"""
+                    SELECT CAST(person_id AS INTEGER) AS person_id, 
+                        * EXCEPT(person_id)
+                    FROM `{self.full_table_id}` 
+                """
+                run_sql_query(convert_person_id_sql, destination=self.full_table_id)
+            elif verbose:
                 print(f"    {self.table_id} already contains person_id column")
         else:
             if "digest" in self.get_column_names():
@@ -685,6 +696,9 @@ class FDMTable:
                 otherwise False
         """
         
+        if date_column_name in self.get_column_names():
+            self.drop_column(date_column_name)
+        
         input_is_len_3_list = type(date_cols) == list and len(date_cols) == 3
         input_is_string = type(date_cols) == str
         if not input_is_len_3_list and not input_is_string:
@@ -756,6 +770,8 @@ class FDMTable:
             None - all changes occurr in GCP
         """
         
+        if check_table_exists(self.full_table_id + "_fdm_problems"):
+            self.recombine()
         overwrite_existing = False
         if check_table_exists(self.full_table_id):
             response = input(f"""
@@ -790,8 +806,17 @@ class FDMTable:
         correct_identifiers = ["person_id", "digest", "EDRN"]
         identifiers_in_src = [col for col in self.get_column_names()
                               if col in correct_identifiers] 
-        if identifiers_in_src:
-            print(f"    {self.table_id} already contains person_id column")
+        if "person_id" in identifiers_in_src:
+            print(f"\n    {self.table_id} already contains person_id column")
+            person_id_dtype = self._get_table_schema_dict()["person_id"]
+            if person_id_dtype != "INTEGER":
+                print(f"    converting person_id to INTEGER")
+                convert_person_id_sql = f"""
+                    SELECT CAST(person_id AS INTEGER) AS person_id, 
+                        * EXCEPT(person_id)
+                    FROM `{self.full_table_id}` 
+                """
+                run_sql_query(convert_person_id_sql, destination=self.full_table_id)
             return True
         
         col_names_list_string = "".join(
