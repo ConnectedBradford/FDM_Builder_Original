@@ -156,4 +156,33 @@ def check_table_exists(full_table_id):
     except:
         return False
         
+        
+def _get_table_schema_dict(full_table_id):
+    """Creates dictionary containing column name: column type 
+
+    Takes the Schema object from the bigquery library and extracts
+    the `name` and `field_type` attributes from each Field and stores
+    them as key/value pairs in a python dictionary. The result is a 
+    dictionary with keys for each column name in the source data, and 
+    corresponding values for the data type of each column
+
+    e.g:
+
+    {
+        "string_column_name": "STRING",
+         "int_column_name": "INTEGER",
+         ...
+    }
+    
+    Args:
+        full_table_id: string, table_id of table in bigquery for required
+            schema. Must include project and dataset ids.
+
+    Returns:
+        dict, column name: colum data type pairs 
+    """
+    table = CLIENT.get_table(self.full_table_id)
+    return {field.name: field.field_type  
+            for field in table.schema}
+                                                                                                          
     
