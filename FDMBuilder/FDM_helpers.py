@@ -45,12 +45,19 @@ def rename_columns_in_bigquery(table_id, names_map, verbose=True):
             print(f"\t{old_name} -> {new_name}")
     alias_string = ", ".join(alias_list)
     old_names_string = ", ".join(names_map.keys())
+    n_table_cols = len(get_table_schema_dict(table_id))
     
-    sql = f"""
-        SELECT {alias_string}, * EXCEPT({old_names_string})
-        FROM `{table_id}`
-    """
-    
+    if len(names_map) == n_table_cols:
+        sql = f"""
+            SELECT {alias_string}
+            FROM `{table_id}`
+        """
+    else:
+        sql = f"""
+            SELECT {alias_string}, * EXCEPT({old_names_string})
+            FROM `{table_id}`
+        """
+
     run_sql_query(sql=sql, destination=table_id)
     if verbose:
         print("\tRenaming Complete\n")
@@ -157,7 +164,7 @@ def check_table_exists(full_table_id):
         return False
         
         
-def _get_table_schema_dict(full_table_id):
+def get_table_schema_dict(full_table_id):
     """Creates dictionary containing column name: column type 
 
     Takes the Schema object from the bigquery library and extracts
@@ -181,7 +188,7 @@ def _get_table_schema_dict(full_table_id):
     Returns:
         dict, column name: colum data type pairs 
     """
-    table = CLIENT.get_table(self.full_table_id)
+    table = CLIENT.get_table(full_table_id)
     return {field.name: field.field_type  
             for field in table.schema}
                                                                                                           
