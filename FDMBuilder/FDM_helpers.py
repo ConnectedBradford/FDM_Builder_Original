@@ -63,17 +63,23 @@ def rename_columns_in_bigquery(table_id, names_map, verbose=True):
         print("\tRenaming Complete\n")
     
     
-def clear_dataset(dataset_id):
-    """Removes all tables from a dataset, leaving it empty
+def clear_dataset(dataset_id, containing=None):
+    """Deletes all/some tables from a dataset
 
     Args:
         datset_id: string, full dataset id (i.e. "project_id.dataset_id")
             naming dataset to be cleared
+        containing: string, Default None, optional substring that should be 
+            present in table id for table to be deleted. For example, setting
+            to "TEST" will delete all tables with "TEST" in their table id.
 
     Returns:
         None - changes occurr in GCP
     """
     for table in CLIENT.list_tables(dataset_id):
+        print(table.table_id)
+        if containing and containing not in table.table_id:
+            continue
         full_table_id = f"{dataset_id}.{table.table_id}"
         CLIENT.delete_table(full_table_id, not_found_ok=True)
         
@@ -192,4 +198,27 @@ def get_table_schema_dict(full_table_id):
     return {field.name: field.field_type  
             for field in table.schema}
                                                                                                           
+    
+def build_id_map_error_table(id_a, id_b, map_table, destination_dataset):
+    
+    count_a = f"COUNT({id_a}) OVER (PARTITION BY {id_a})"
+    count_b = f"COUNT({id_b}) OVER (PARTITION BY {id_b})"
+
+    sql = f"""
+        WITH grouped AS (
+            SELECT {id_a}, {id_b}, 
+                 {count_a} AS n_{id_a}s, 
+                 {count_b} AS n_{id_b}s
+            FROM `{map_table}`
+            GROUP BY {id_a}, {id_b}
+        )
+        SELECT {id_a}, {id_b}, n_{id_a}s, n_{id_b}s
+        FROM grouped 
+        WHERE n_{id_a}s != 1 OR n_{id_b}s != 1
+    """
+    
+    map_table_name = map_table.split(".")[-1]
+    destination_table = f"{destination_dataset}.{map_table_name}_{id_a}_{id_b}_mapping_errors"
+    
+    return run_sql_query(sql, destination_table)
     
