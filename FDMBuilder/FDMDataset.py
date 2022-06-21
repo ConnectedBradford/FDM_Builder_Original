@@ -32,7 +32,8 @@ class FDMDataset:
                   "run .create_dataset()")
     
     
-    def build(self, excluded_tables=[], includes_pre_natal=False):
+    def build(self, extract_end_date, excluded_tables=[], 
+              includes_pre_natal=False):
         """Builds the FDM dataset
         
         Simply requires that the dataset specified when initialising the 
@@ -65,7 +66,8 @@ class FDMDataset:
         print("\n2. Building person table\n")
         self._build_person_table()
         print("3. Separating out problem entries from source tables\n")
-        self._split_problem_entries_from_src_tables(includes_pre_natal)
+        self._split_problem_entries_from_src_tables(extract_end_date, 
+                                                    includes_pre_natal)
         print("\n4. Rebuilding person table\n")
         self._build_person_table()
         print("5. Building observation_period table\n")
@@ -240,7 +242,8 @@ class FDMDataset:
             print(f"    * {table.table_id}_data_dict built")
         
         
-    def _add_problem_entries_column_to_table(self, table, includes_pre_natal):
+    def _add_problem_entries_column_to_table(self, table, extract_end_date, 
+                                             includes_pre_natal):
         """Labels all problem entries in a table
         
         Creates a "problems" column in the input table and labels any entries 
@@ -305,6 +308,14 @@ class FDMDataset:
                                                             INTERVAL 42 DAY)
             )
         """
+        fdm_start_after_extract_end = f"""
+            EXISTS(
+                SELECT fdm_start_date
+                FROM `{self.person_table_id}` AS person
+                WHERE src.person_id = person.person_id 
+                    AND src.fdm_start_date > CAST("{extract_end_date}" AS DATETIME)
+            )
+        """
         messages_with_problem_cases = {
             "Entry has no person_id": no_person_id,
             "person_id isn't in master person table": person_id_not_in_master,
@@ -314,6 +325,8 @@ class FDMDataset:
             fdm_start_before_pre_natal_period,
             "fdm_start_date is after death_datetime (+42 days)": 
             fdm_start_after_death,
+            "fdm_start_date is after the end date for the data extract":
+            fdm_start_after_extract_end
         }
         if "fdm_end_date" in table.get_column_names():
             no_fdm_end_date = "fdm_end_date is NULL"
@@ -336,6 +349,14 @@ class FDMDataset:
                                                               INTERVAL 42 DAY)
                 )
             """
+            fdm_end_after_extract_end = f"""
+                EXISTS(
+                    SELECT fdm_end_date
+                    FROM `{self.person_table_id}` AS person
+                    WHERE src.person_id = person.person_id 
+                        AND src.fdm_end_date > CAST("{extract_end_date}" AS DATETIME)
+                )
+            """
             messages_with_problem_cases[
                 "Entry has no fdm_end_date"
             ] = no_fdm_end_date
@@ -348,6 +369,9 @@ class FDMDataset:
             messages_with_problem_cases[
                 "fdm_end_date is after person death_datetime"
             ] = fdm_end_after_death
+            messages_with_problem_cases[
+                "fdm_end_date is after extract end date"
+            ] = fdm_end_after_extract_end
 
         if not includes_pre_natal:
             fdm_start_in_pre_natal_period = f"""
@@ -379,7 +403,8 @@ class FDMDataset:
         run_sql_query(problem_tab_sql, destination=table.full_table_id)
             
             
-    def _split_problem_entries_from_src_tables(self, includes_pre_natal):
+    def _split_problem_entries_from_src_tables(self,  extract_end_date, 
+                                               includes_pre_natal):
         """Splits source tables into those with/without problems
         
         Takes each source table with a problems column, and separates the 
@@ -398,7 +423,9 @@ class FDMDataset:
         for table in self.tables:
 
             print(f"    {table.table_id}:")
-            self._add_problem_entries_column_to_table(table, includes_pre_natal)
+            self._add_problem_entries_column_to_table(table,
+                                                      extract_end_date, 
+                                                      includes_pre_natal)
             problem_table_sql = f"""
                 SELECT * FROM `{table.full_table_id}`
                 WHERE fdm_problem != "No problem"
