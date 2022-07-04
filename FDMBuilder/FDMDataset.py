@@ -120,13 +120,19 @@ class FDMDataset:
                 source_table_id = (f"{self.dataset_id}.{table.table_id}"),
                 dataset_id = self.dataset_id
             )
-            (exists, has_person_id,  has_fdm_start, 
+            (exists, has_person_id, person_id_is_int, has_fdm_start, 
              has_fdm_end, has_problem_table) = fdm_table.check_build()
-            if not has_person_id or not has_fdm_start:
-                person_missing = "* person_id " if not has_person_id else ""
-                start_missing = "* fdm_start_date " if not has_fdm_start else ""
+            if not np.all(has_person_id, person_id_is_int, has_fdm_start):
+                person_missing = ("\n\t* no person_id column present" 
+                                  if not has_person_id else "")
+                person_not_int = ("\n\t* person_id column is not INTEGER format" 
+                                  if not has_person_id 
+                                  and not person_id_is_int else "")
+                start_missing = ("\n\t* no fdm_start_date column present" 
+                                 if not has_fdm_start else "")
+                errors = person_missing + person_not_int + start_missing
                 print(f"""
-    {table.table_id} is missing: {person_missing}{start_missing}
+    {table.table_id} is not ready for dataset build:{errors}
     
     Complete the table build process for {table.table_id} and then re-run the
     dataset build -- OR -- if the table doesn't apply to the usual FDM criteria

@@ -143,8 +143,13 @@ class FDMTable:
         """
         table_exists = check_table_exists(self.full_table_id)
         if table_exists:
-            column_names = self.get_column_names()
-            person_id_present = "person_id" in column_names
+            schema_dict = self._get_table_schema_dict()
+            if "person_id" in schema_dict.keys():
+                person_id_present = True
+                person_id_is_int = schema_dict["person_id"] == "INTEGER"
+            else:
+                person_id_present = False
+                person_id_is_int = False
             fdm_start_present = "fdm_start_date" in column_names
             fdm_end_present = "fdm_end_date" in column_names
             fdm_end_present = "fdm_end_date" in column_names
@@ -154,8 +159,8 @@ class FDMTable:
             fdm_start_present = False
             fdm_end_present = False
             problem_table_present = False
-        return (table_exists, person_id_present, fdm_start_present, 
-                fdm_end_present, problem_table_present)
+        return (table_exists, person_id_present, person_id_is_int, 
+                fdm_start_present,  fdm_end_present, problem_table_present)
         
     
     def build(self):
