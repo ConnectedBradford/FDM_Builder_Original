@@ -122,17 +122,17 @@ class FDMDataset:
             )
             (exists, has_person_id, person_id_is_int, has_fdm_start, 
              has_fdm_end, has_problem_table) = fdm_table.check_build()
-            if not np.all(has_person_id, person_id_is_int, has_fdm_start):
+            if not np.all([has_person_id, person_id_is_int, has_fdm_start]):
                 person_missing = ("\n\t* no person_id column present" 
                                   if not has_person_id else "")
                 person_not_int = ("\n\t* person_id column is not INTEGER format" 
-                                  if not has_person_id 
+                                  if has_person_id 
                                   and not person_id_is_int else "")
                 start_missing = ("\n\t* no fdm_start_date column present" 
                                  if not has_fdm_start else "")
                 errors = person_missing + person_not_int + start_missing
                 print(f"""
-    {table.table_id} is not ready for dataset build:{errors}
+    {table.table_id} is not ready for dataset build\n{errors}
     
     Complete the table build process for {table.table_id} and then re-run the
     dataset build -- OR -- if the table doesn't apply to the usual FDM criteria
@@ -145,7 +145,7 @@ class FDMDataset:
                     fdm_table.recombine()
                 fdm_end = ' fdm_end_date' if has_fdm_end else ''
                 print(f"    * {table.table_id} contains: "
-                      f" - person_id - fdm_start_date {fdm_end}"
+                      f" - INTEGER person_id - fdm_start_date {fdm_end}"
                       "\n\t-> Table ready")
             fdm_src_tables.append(fdm_table)
         self.tables = fdm_src_tables

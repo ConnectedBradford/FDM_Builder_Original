@@ -150,9 +150,8 @@ class FDMTable:
             else:
                 person_id_present = False
                 person_id_is_int = False
-            fdm_start_present = "fdm_start_date" in column_names
-            fdm_end_present = "fdm_end_date" in column_names
-            fdm_end_present = "fdm_end_date" in column_names
+            fdm_start_present = "fdm_start_date" in schema_dict.keys()
+            fdm_end_present = "fdm_end_date" in schema_dict.keys()
             problem_table_present = check_table_exists(self.full_table_id + "_fdm_problems")
         else:
             person_id_present = False
