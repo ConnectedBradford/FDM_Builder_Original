@@ -132,7 +132,7 @@ class FDMDataset:
                                  if not has_fdm_start else "")
                 errors = person_missing + person_not_int + start_missing
                 print(f"""
-    {table.table_id} is not ready for dataset build\n{errors}
+    {table.table_id} is not ready for dataset build:\n{errors}
     
     Complete the table build process for {table.table_id} and then re-run the
     dataset build -- OR -- if the table doesn't apply to the usual FDM criteria
