@@ -43,6 +43,7 @@ def rename_columns_in_bigquery(table_id, names_map, verbose=True):
         alias_list.append(f"{old_name} AS {new_name}")
         if verbose:
             print(f"\t{old_name} -> {new_name}")
+    alias_list.append(f"{list(names_map.keys())[0]} AS DUMMY_COL")
     alias_string = ", ".join(alias_list)
     old_names_string = ", ".join(names_map.keys())
     n_table_cols = len(get_table_schema_dict(table_id))
@@ -59,6 +60,11 @@ def rename_columns_in_bigquery(table_id, names_map, verbose=True):
         """
 
     run_sql_query(sql=sql, destination=table_id)
+    rop_column_sql = f"""
+        ALTER TABLE `{table_id}`
+        DROP COLUMN DUMMY_COL
+    """
+    run_sql_query(drop_column_sql)
     if verbose:
         print("\tRenaming Complete\n")
     
