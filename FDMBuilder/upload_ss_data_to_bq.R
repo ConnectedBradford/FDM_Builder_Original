@@ -146,8 +146,8 @@ upload_table_to_bq <- function(table_id,
 ###### CHANGE THESE VARIABLES TO SUIT #######
 
 upload_table_id <- "tbl_SRAppointment"
-upload_table_dataset_id <- "CY_FDM_TEST"
-bq_dataset_id <- "CY_SAM_TEST"
+upload_table_dataset_id <- "CB_FDM_TEST"
+bq_dataset_id <- "CB_SAM_TEST"
 upload_batch_size <- 2000000
 
 #############################################
