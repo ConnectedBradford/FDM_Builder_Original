@@ -6,7 +6,7 @@ from FDMBuilder.testing_helpers import *
 # collect 50 random people from person table
 persons_sql = """
     SELECT person_id, birth_datetime, death_datetime
-    FROM `CY_FDM_MASTER.person`
+    FROM `CB_FDM_MASTER.person`
     LIMIT 50
 """
 persons = CLIENT.query(persons_sql).to_dataframe() 
@@ -14,7 +14,7 @@ persons = CLIENT.query(persons_sql).to_dataframe()
 # collect another 50 random people with a death_datetime from person table
 dead_persons_sql = """
     SELECT person_id, birth_datetime, death_datetime
-    FROM `CY_FDM_MASTER.person`
+    FROM `CB_FDM_MASTER.person`
     WHERE death_datetime IS NOT NULL
     LIMIT 50
 """
@@ -51,15 +51,15 @@ test_table_1 = test_table_1[["person_id", "start_date"]]
 # add some random data
 test_table_1["some_data"] = np.random.choice(range(100000), 100)
 # upload table to gbq
-test_table_1.to_gbq(destination_table="CY_FDM_BUILDER_TESTS.test_table_1",
+test_table_1.to_gbq(destination_table="CB_FDM_BUILDER_TESTS.test_table_1",
                     project_id="yhcr-prd-phm-bia-core",
                     if_exists="replace")
 
 # select random entries from master person table that have a corresponding digest
 persons_2_sql = """
     SELECT demo.digest, person.birth_datetime, person.death_datetime
-    FROM `CY_FDM_MASTER.person` person
-    INNER JOIN `CY_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
+    FROM `CB_FDM_MASTER.person` person
+    INNER JOIN `CB_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
     ON demo.person_id = person.person_id
     WHERE digest IS NOT NULL
     LIMIT 50
@@ -69,8 +69,8 @@ persons_2 = CLIENT.query(persons_2_sql).to_dataframe()
 # corresponding digest
 dead_persons_2_sql = """
     SELECT demo.digest, person.birth_datetime, person.death_datetime
-    FROM `CY_FDM_MASTER.person` person
-    INNER JOIN `CY_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
+    FROM `CB_FDM_MASTER.person` person
+    INNER JOIN `CB_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
     ON demo.person_id = person.person_id
     WHERE digest IS NOT NULL
     AND death_datetime IS NOT NULL
@@ -132,7 +132,7 @@ test_table_2 = test_table_2[["wrong_digest", "start_month", "start_year",
                              "end_month", "end_year"]]
 # create random data column
 test_table_2["some_data"] = np.random.choice(range(100000), 100)
-test_table_2.to_gbq(destination_table="CY_FDM_BUILDER_TESTS.test_table_2",
+test_table_2.to_gbq(destination_table="CB_FDM_BUILDER_TESTS.test_table_2",
                     project_id="yhcr-prd-phm-bia-core",
                     if_exists="replace")
 
@@ -140,8 +140,8 @@ test_table_2.to_gbq(destination_table="CY_FDM_BUILDER_TESTS.test_table_2",
 # for guidance
 persons_3_sql = """
     SELECT demo.EDRN, person.birth_datetime, person.death_datetime
-    FROM `CY_FDM_MASTER.person` person
-    INNER JOIN `CY_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
+    FROM `CB_FDM_MASTER.person` person
+    INNER JOIN `CB_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
     ON demo.person_id = person.person_id
     WHERE EDRN IS NOT NULL
     LIMIT 50
@@ -150,8 +150,8 @@ persons_3 = CLIENT.query(persons_3_sql).to_dataframe()
 
 dead_persons_3_sql = """
     SELECT demo.EDRN, person.birth_datetime, person.death_datetime
-    FROM `CY_FDM_MASTER.person` person
-    INNER JOIN `CY_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
+    FROM `CB_FDM_MASTER.person` person
+    INNER JOIN `CB_STAGING_DATABASE.src_DemoGraphics_MASTER` demo
     ON demo.person_id = person.person_id
     WHERE EDRN IS NOT NULL
     AND death_datetime IS NOT NULL
@@ -201,6 +201,6 @@ test_table_3.drop(["birth_datetime", "death_datetime", "digest",
                    "start_date", "end_date"], 
                   axis=1, 
                   inplace=True)
-test_table_3.to_gbq(destination_table="CY_FDM_BUILDER_TESTS.test_table_3",
+test_table_3.to_gbq(destination_table="CB_FDM_BUILDER_TESTS.test_table_3",
                     project_id="yhcr-prd-phm-bia-core",
                     if_exists="replace")
